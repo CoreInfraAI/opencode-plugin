@@ -2,20 +2,18 @@
 
 Плагин для [OpenCode](https://opencode.ai), который добавляет [CoreInfra AI Hub](https://hub.coreinfra.ai/) в качестве внешнего провайдера моделей.
 
-## Что это
-
-CoreInfra AI Hub — это платформа доступа к AI-моделям с тарификацией в рублях. Плагин интегрирует Hub с OpenCode и позволяет использовать модели OpenAI и Anthropic напрямую из CLI через инфраструктуру CoreInfra.
-
 ## Установка
+
+**Важно:** требуется версия OpenCode не старше 1.4.0
 
 ```bash
 # Установка плагина
 opencode plugin -g 'coreinfra-opencode-plugin@github:CoreInfraAI/opencode-plugin'
-# Авторизация с вводом API-ключа
+# Авторизация с вводом API-токена
 opencode providers login --provider coreinfra
 ```
 
-Во время авторизации потребуется API-ключ CoreInfra AI Hub.
+Во время авторизации потребуется API-токен [CoreInfra AI Hub](https://hub.coreinfra.ai/).
 
 ## Возможности
 
