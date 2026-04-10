@@ -1,0 +1,51 @@
+name: Update Models
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-models:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Setup just
+        uses: extractions/setup-just@v2
+
+      - name: Fetch models
+        id: fetch
+        run: just fetch-models
+        continue-on-error: true
+
+      - name: Check for changes
+        id: check_changes
+        run: |
+          if git diff --quiet models.json; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Commit and push
+        if: steps.check_changes.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add models.json
+          git commit -m "chore: update models [skip ci]"
+          git push
+
+      - name: Fail if fetch had missing models
+        if: steps.fetch.outcome == 'failure'
+        run: |
+          echo "❌ fetch-models exited non-zero: some hub models are missing from models.dev"
+          exit 1

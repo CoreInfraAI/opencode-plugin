@@ -1,0 +1,44 @@
+{
+  "name": "coreinfra-opencode-plugin",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "./index.ts",
+  "module": "./index.ts",
+  "files": [
+    "index.ts",
+    "src",
+    "models.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": {
+      "import": "./index.ts",
+      "types": "./index.ts"
+    },
+    "./server": {
+      "import": "./index.ts",
+      "types": "./index.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "biome lint . --error-on-warnings",
+    "format": "biome format --write .",
+    "format:check": "biome format . --diagnostic-level=error",
+    "test": "vitest run",
+    "check": "bun run typecheck && bun run lint && bun run test && bun run format:check"
+  },
+  "peerDependencies": {
+    "@opencode-ai/plugin": ">=1.4.0",
+    "@opencode-ai/sdk": ">=1.4.0"
+  },
+  "devDependencies": {
+    "@opencode-ai/plugin": "1.4.0",
+    "@opencode-ai/sdk": "1.4.0",
+    "@types/node": "^24.9.0",
+    "@biomejs/biome": "^2.4.11",
+    "vitest": "^4.1.4",
+    "typescript": "^5.8.0"
+  }
+}
