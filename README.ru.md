@@ -6,10 +6,13 @@
 
 **Важно:** требуется версия OpenCode не старше 1.4.0
 
+Установка плагина
 ```bash
-# Установка плагина
 opencode plugin -g 'coreinfra-opencode-plugin@github:CoreInfraAI/opencode-plugin'
-# Авторизация с вводом API-токена
+```
+
+Авторизация с вводом API-токена
+```bash
 opencode providers login --provider coreinfra
 ```
 

@@ -6,10 +6,13 @@ Plugin for [OpenCode](https://opencode.ai) that adds [CoreInfra AI Hub](https://
 
 **Important:** requires OpenCode version 1.4.0 or newer
 
+Install the plugin
 ```bash
-# Install the plugin
 opencode plugin -g 'coreinfra-opencode-plugin@github:CoreInfraAI/opencode-plugin'
-# Log in by entering the API token
+```
+
+Log in by entering the API token
+```bash
 opencode providers login --provider coreinfra
 ```
 
