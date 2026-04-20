@@ -8,7 +8,7 @@ Plugin for [OpenCode](https://opencode.ai) that adds [CoreInfra AI Hub](https://
 
 Install the plugin
 ```bash
-opencode plugin -g '@coreinfra/opencode-plugin'
+opencode plugin -g '@coreinfra/opencode-plugin@latest'
 ```
 
 Log in by entering the API token
