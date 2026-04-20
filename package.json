@@ -1,6 +1,6 @@
 {
-  "name": "coreinfra-opencode-plugin",
-  "version": "1.0.0",
+  "name": "@coreinfra/opencode-plugin",
+  "version": "1.0.1",
   "type": "module",
   "main": "./index.ts",
   "module": "./index.ts",
