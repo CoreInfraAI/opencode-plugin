@@ -20,10 +20,27 @@ function ensureCoreInfraProvider(config: Config) {
   };
 }
 
-async function plugin(_input: PluginInput): Promise<Hooks> {
+async function log(input: PluginInput, message: string, extra?: Record<string, unknown>) {
+  await input.client.app.log({
+    body: {
+      service: "plugin.coreinfra",
+      level: "debug",
+      message,
+      extra,
+    },
+  });
+}
+
+async function plugin(input: PluginInput): Promise<Hooks> {
+  const t0 = performance.now();
+  await log(input, "plugin load started");
+  await log(input, "plugin hooks registered", { duration: `${Math.round(performance.now() - t0)}ms` });
+
   return {
     config: async (config) => {
+      const t = performance.now();
       ensureCoreInfraProvider(config);
+      await log(input, "config hook completed", { duration: `${Math.round(performance.now() - t)}ms` });
     },
     auth: {
       provider: "coreinfra",
@@ -34,15 +51,23 @@ async function plugin(_input: PluginInput): Promise<Hooks> {
         },
       ],
       loader: async (getAuth) => {
+        const t = performance.now();
         const auth = await getAuth();
         if (!auth || auth.type !== "api") return {};
+        await log(input, "auth loader completed", { duration: `${Math.round(performance.now() - t)}ms` });
         return { apiKey: auth.key };
       },
     },
     provider: {
       id: "coreinfra",
       models: async () => {
-        return await fetchModels();
+        const t = performance.now();
+        const models = await fetchModels();
+        await log(input, "models fetch completed", {
+          duration: `${Math.round(performance.now() - t)}ms`,
+          count: Object.keys(models).length,
+        });
+        return models;
       },
     },
   };
