@@ -472,7 +472,7 @@
       "cost": {
         "input": 30,
         "output": 180,
-        "cache_read": 30,
+        "cache_read": 0,
         "cache_write": 0
       }
     }
