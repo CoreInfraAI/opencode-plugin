@@ -20,7 +20,7 @@ During authentication, you will need a [CoreInfra AI Hub](https://hub.coreinfra.
 
 ## Features
 
-- **Up-to-date model list** - the catalog is loaded dynamically from the Hub API on every startup and always reflects its current state.
+- **Up-to-date model list** - the catalog is loaded dynamically from the Hub API on every startup and always reflects its current state. Model capabilities (context limits, reasoning, tool use, etc.) are resolved from the models.dev catalog.
 - **OpenAI and Anthropic models** - both model families are supported, including GPT-5.x and Claude 4.x.
 - **Reasoning support** - `interleaved thinking` mode is enabled automatically for Anthropic models.
 
@@ -48,6 +48,14 @@ opencode models coreinfra
 
 The full model list is determined by the Hub contents at startup time. The plugin supports all models listed on this page:
 https://hub.coreinfra.ai/pricing
+
+## Configuration
+
+### Environment Variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `COREINFRA_HUB_BASE_URL` | `https://hub.coreinfra.ai` | Base URL of the CoreInfra Hub instance. Overrides the default endpoint for model listings and API proxying. |
 
 ## Development
 
