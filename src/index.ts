@@ -20,15 +20,22 @@ function ensureCoreInfraProvider(config: Config) {
   };
 }
 
-async function log(input: PluginInput, message: string, extra?: Record<string, unknown>) {
-  await input.client.app.log({
-    body: {
-      service: "plugin.coreinfra",
-      level: "debug",
-      message,
-      extra,
-    },
-  });
+async function log(
+  input: PluginInput,
+  message: string,
+  extra?: Record<string, unknown>,
+  level: "debug" | "warn" | "error" = "debug",
+) {
+  await input.client.app
+    .log({
+      body: {
+        service: "plugin.coreinfra",
+        level,
+        message,
+        extra,
+      },
+    })
+    .catch(() => {});
 }
 
 async function plugin(input: PluginInput): Promise<Hooks> {
