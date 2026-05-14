@@ -1,0 +1,96 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g. v1.1.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - name: Validate version
+        id: version
+        run: |
+          VERSION="${{ inputs.version }}"
+          VERSION="${VERSION#v}"
+          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Invalid semver: $VERSION"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Setup just
+        uses: extractions/setup-just@v2
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run checks
+        run: just check
+
+      - name: Bump version and tag
+        run: |
+          ver_gt() {
+            IFS='.' read -r maj1 min1 pat1 <<< "$1"
+            IFS='.' read -r maj2 min2 pat2 <<< "$2"
+            [ "$maj1" -gt "$maj2" ] && return 0
+            [ "$maj1" -lt "$maj2" ] && return 1
+            [ "$min1" -gt "$min2" ] && return 0
+            [ "$min1" -lt "$min2" ] && return 1
+            [ "$pat1" -gt "$pat2" ] && return 0
+            return 1
+          }
+          CURRENT=$(jq -r .version package.json)
+          NEW="${{ steps.version.outputs.version }}"
+          if [ "$NEW" = "$CURRENT" ] || ! ver_gt "$NEW" "$CURRENT"; then
+            echo "::error::New version ($NEW) must be greater than current ($CURRENT)"
+            exit 1
+          fi
+          jq --arg v "$NEW" '.version = $v' package.json > package.json.tmp
+          mv package.json.tmp package.json
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add package.json
+          git commit -m "release: v$NEW"
+          git tag "v$NEW"
+
+      - name: Publish
+        run: npm publish --provenance --access public
+
+      - name: Push and release
+        run: |
+          git push origin main --follow-tags
+          gh release create "v${{ steps.version.outputs.version }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target main \
+            --generate-notes \
+            --title "v${{ steps.version.outputs.version }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
