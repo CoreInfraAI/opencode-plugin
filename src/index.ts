@@ -1,6 +1,10 @@
 import type { Config, Hooks, PluginInput } from "@opencode-ai/plugin";
 
-import { fetchModels } from "./models.ts";
+import {
+  buildConfigModels,
+  fetchModelsDevData,
+  fetchHubModels,
+} from "./models.ts";
 
 const PROVIDER_NAME = "CoreInfra AI Hub";
 
@@ -33,13 +37,43 @@ async function log(
 async function plugin(input: PluginInput): Promise<Hooks> {
   const t0 = performance.now();
   await log(input, "plugin load started");
-  await log(input, "plugin hooks registered", { duration: `${Math.round(performance.now() - t0)}ms` });
+  await log(input, "plugin hooks registered", {
+    duration: `${Math.round(performance.now() - t0)}ms`,
+  });
 
   return {
     config: async (config) => {
       const t = performance.now();
       ensureCoreInfraProvider(config);
-      await log(input, "config hook completed", { duration: `${Math.round(performance.now() - t)}ms` });
+      try {
+        const [modelsDevData, hubData] = await Promise.all([
+          fetchModelsDevData(),
+          fetchHubModels(),
+        ]);
+        const { models: configModels, warnings } = buildConfigModels(
+          modelsDevData,
+          hubData,
+        );
+        for (const w of warnings) {
+          await log(input, w);
+        }
+        if (!config.provider) config.provider = {};
+        if (!config.provider.coreinfra) config.provider.coreinfra = {};
+        config.provider.coreinfra.models =
+          configModels as typeof config.provider.coreinfra.models;
+      } catch (err) {
+        await log(
+          input,
+          "fetchModels failed",
+          {
+            error: err instanceof Error ? err.message : String(err),
+          },
+          "error",
+        );
+      }
+      await log(input, "config hook completed", {
+        duration: `${Math.round(performance.now() - t)}ms`,
+      });
     },
     auth: {
       provider: "coreinfra",
@@ -52,21 +86,16 @@ async function plugin(input: PluginInput): Promise<Hooks> {
       loader: async (getAuth) => {
         const t = performance.now();
         const auth = await getAuth();
-        if (!auth || auth.type !== "api") return {};
-        await log(input, "auth loader completed", { duration: `${Math.round(performance.now() - t)}ms` });
-        return { apiKey: auth.key };
-      },
-    },
-    provider: {
-      id: "coreinfra",
-      models: async () => {
-        const t = performance.now();
-        const models = await fetchModels();
-        await log(input, "models fetch completed", {
+        if (!auth || auth.type !== "api") {
+          await log(input, "auth loader completed (no auth)", {
+            duration: `${Math.round(performance.now() - t)}ms`,
+          });
+          return {};
+        }
+        await log(input, "auth loader completed", {
           duration: `${Math.round(performance.now() - t)}ms`,
-          count: Object.keys(models).length,
         });
-        return models;
+        return { apiKey: auth.key };
       },
     },
   };
