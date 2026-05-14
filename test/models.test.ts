@@ -1,79 +1,348 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { fetchModels } from "../src/models.ts";
+import {
+  buildConfigModels,
+  fetchModelsDevData,
+  fetchHubModels,
+} from "../src/models.ts";
 
-describe("fetchModels", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
+vi.mock("node:fs/promises", () => ({
+  readFile: vi.fn(),
+}));
 
-  it("maps the hub response into opencode models", async () => {
-    const json = vi.fn().mockResolvedValue({
-      providers: {
-        openai: {
-          models: {
-            "gpt-5.4-nano": {
-              display_name: "GPT-5.4 Nano",
-            },
-          },
+const MODELS_DEV_FIXTURE = {
+  openai: {
+    models: {
+      "gpt-5.4-nano": {
+        id: "gpt-5.4-nano",
+        name: "GPT-5.4 Nano",
+        limit: { context: 400000, output: 128000 },
+        attachment: true,
+        reasoning: false,
+        temperature: true,
+        tool_call: true,
+        modalities: {
+          input: ["text", "image", "audio", "video", "pdf"],
+          output: ["text"],
         },
-        anthropic: {
-          models: {
-            "claude-sonnet-4-20250514": {
-              display_name: "Claude Sonnet 4",
-            },
-          },
+        cost: { input: 0.2, output: 1.25, cache_read: 0.02, cache_write: 0 },
+      },
+    },
+  },
+  anthropic: {
+    models: {
+      "claude-sonnet-4-20250514": {
+        id: "claude-sonnet-4-20250514",
+        name: "Claude Sonnet 4",
+        limit: { context: 200000, output: 64000 },
+        attachment: true,
+        reasoning: true,
+        temperature: true,
+        tool_call: true,
+        modalities: {
+          input: ["text", "image", "pdf"],
+          output: ["text"],
+        },
+        cost: {
+          input: 3,
+          output: 15,
+          cache_read: 0.3,
+          cache_write: 3.75,
         },
       },
-    });
+    },
+  },
+};
 
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json,
-    });
+const HUB_FIXTURE = {
+  providers: {
+    openai: {
+      models: {
+        "gpt-5.4-nano": { display_name: "GPT-5.4 Nano" },
+      },
+    },
+    anthropic: {
+      models: {
+        "claude-sonnet-4-20250514": { display_name: "Claude Sonnet 4" },
+      },
+    },
+  },
+};
 
-    vi.stubGlobal("fetch", fetchMock);
-
-    const models = await fetchModels();
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      "https://hub.coreinfra.ai/hub/api/prices",
+describe("buildConfigModels", () => {
+  it("intersects hub data with models.dev data", () => {
+    const { models, warnings } = buildConfigModels(
+      MODELS_DEV_FIXTURE,
+      HUB_FIXTURE,
     );
 
-    expect(models["gpt-5.4-nano"]).toMatchObject({
+    expect(warnings).toEqual([]);
+    expect(Object.keys(models)).toHaveLength(2);
+
+    const gpt = models["gpt-5.4-nano"];
+    expect(gpt).toEqual({
       id: "gpt-5.4-nano",
-      providerID: "coreinfra",
-      api: {
-        id: "gpt-5.4-nano",
-        url: "https://hub.coreinfra.ai/codex/api/v1",
+      name: "GPT-5.4 Nano",
+      provider: {
+        api: "https://hub.coreinfra.ai/codex/api/v1",
         npm: "@ai-sdk/openai",
       },
-      name: "GPT-5.4 Nano",
-      capabilities: {
-        interleaved: true,
+      attachment: true,
+      reasoning: false,
+      temperature: true,
+      tool_call: true,
+      modalities: {
+        input: ["text", "image", "audio", "video", "pdf"],
+        output: ["text"],
       },
-      status: "active",
+      cost: { input: 0.2, output: 1.25, cache_read: 0.02, cache_write: 0 },
+      limit: { context: 400000, output: 128000 },
+      interleaved: true,
+      headers: {},
     });
 
-    expect(models["claude-sonnet-4-20250514"]).toMatchObject({
+    const claude = models["claude-sonnet-4-20250514"];
+    expect(claude).toEqual({
       id: "claude-sonnet-4-20250514",
-      providerID: "coreinfra",
-      api: {
-        id: "claude-sonnet-4-20250514",
-        url: "https://hub.coreinfra.ai/claude/api/v1",
+      name: "Claude Sonnet 4",
+      provider: {
+        api: "https://hub.coreinfra.ai/claude/api/v1",
         npm: "@ai-sdk/anthropic",
       },
-      name: "Claude Sonnet 4",
-      capabilities: {
-        interleaved: {
-          field: "reasoning_content",
-        },
+      attachment: true,
+      reasoning: true,
+      temperature: true,
+      tool_call: true,
+      modalities: {
+        input: ["text", "image", "pdf"],
+        output: ["text"],
       },
+      cost: { input: 3, output: 15, cache_read: 0.3, cache_write: 3.75 },
+      limit: { context: 200000, output: 64000 },
+      interleaved: { field: "reasoning_content" },
       headers: {
         "anthropic-beta":
           "interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14",
       },
-      status: "active",
     });
+  });
+
+  it("uses defaults and emits warning when model not in models.dev", () => {
+    const hubData = {
+      providers: {
+        openai: {
+          models: {
+            "unknown-model": { display_name: "Unknown Model" },
+          },
+        },
+      },
+    };
+
+    const { models, warnings } = buildConfigModels({}, hubData);
+
+    expect(warnings).toEqual([
+      "openai/unknown-model not found in models.dev — using defaults",
+    ]);
+    expect(models["unknown-model"]).toEqual({
+      id: "unknown-model",
+      name: "Unknown Model",
+      provider: {
+        api: "https://hub.coreinfra.ai/codex/api/v1",
+        npm: "@ai-sdk/openai",
+      },
+      attachment: true,
+      reasoning: true,
+      temperature: true,
+      tool_call: true,
+      modalities: {
+        input: ["text", "image", "audio", "video", "pdf"],
+        output: ["text"],
+      },
+      cost: { input: 0, output: 0, cache_read: 0, cache_write: 0 },
+      limit: { context: 200000, output: 64000 },
+      interleaved: true,
+      headers: {},
+    });
+  });
+
+  it("resolves via full provider/modelId key", () => {
+    const modelsDevData = {
+      openai: {
+        models: {
+          "shared-id": {
+            id: "shared-id",
+            name: "OpenAI Shared",
+            limit: { context: 100000, output: 32000 },
+            tool_call: true,
+            cost: { input: 1, output: 2 },
+          },
+        },
+      },
+    };
+
+    const hubData = {
+      providers: {
+        openai: {
+          models: {
+            "shared-id": { display_name: "Hub Display Name" },
+          },
+        },
+      },
+    };
+
+    const { models } = buildConfigModels(modelsDevData, hubData);
+
+    expect(models["shared-id"].name).toBe("OpenAI Shared");
+    expect(models["shared-id"].cost.input).toBe(1);
+    expect(models["shared-id"].limit.context).toBe(100000);
+  });
+
+  it("does not resolve from non-openai/anthropic providers in models.dev", () => {
+    const modelsDevData = {
+      "provider-a": {
+        models: {
+          "some-model": {
+            id: "some-model",
+            name: "Should Not Match",
+            cost: { input: 99 },
+          },
+        },
+      },
+    };
+
+    const hubData = {
+      providers: {
+        "provider-a": {
+          models: {
+            "some-model": { display_name: "Hub Model" },
+          },
+        },
+      },
+    };
+
+    const { models, warnings } = buildConfigModels(modelsDevData, hubData);
+
+    expect(warnings).toEqual([
+      "provider-a/some-model not found in models.dev — using defaults",
+    ]);
+    expect(models["some-model"].name).toBe("Hub Model");
+    expect(models["some-model"].cost.input).toBe(0);
+  });
+
+  it("uses hub display_name as fallback when models.dev entry has no name", () => {
+    const modelsDevData = {
+      openai: {
+        models: {
+          "no-name-model": {
+            limit: { context: 100000 },
+            cost: { input: 1 },
+          },
+        },
+      },
+    };
+
+    const hubData = {
+      providers: {
+        openai: {
+          models: {
+            "no-name-model": { display_name: "Hub Display Name" },
+          },
+        },
+      },
+    };
+
+    const { models } = buildConfigModels(modelsDevData, hubData);
+    expect(models["no-name-model"].name).toBe("Hub Display Name");
+  });
+
+  it("returns empty models for empty hub data", () => {
+    const { models, warnings } = buildConfigModels(MODELS_DEV_FIXTURE, {
+      providers: {},
+    });
+
+    expect(models).toEqual({});
+    expect(warnings).toEqual([]);
+  });
+});
+
+describe("fetchModelsDevData", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("reads from cache file when available", async () => {
+    const { readFile } = await import("node:fs/promises");
+    vi.mocked(readFile).mockResolvedValue(
+      JSON.stringify({ openai: { models: {} } }),
+    );
+
+    const data = await fetchModelsDevData();
+    expect(data).toEqual({ openai: { models: {} } });
+  });
+
+  it("falls back to network fetch when cache missing", async () => {
+    const { readFile } = await import("node:fs/promises");
+    vi.mocked(readFile).mockRejectedValue(new Error("ENOENT"));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ openai: { models: {} } }),
+      }),
+    );
+
+    const data = await fetchModelsDevData();
+    expect(data).toEqual({ openai: { models: {} } });
+  });
+
+  it("throws on non-ok network response", async () => {
+    const { readFile } = await import("node:fs/promises");
+    vi.mocked(readFile).mockRejectedValue(new Error("ENOENT"));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 503,
+        statusText: "Service Unavailable",
+      }),
+    );
+
+    await expect(fetchModelsDevData()).rejects.toThrow(
+      "Failed to fetch models.dev: 503 Service Unavailable",
+    );
+  });
+});
+
+describe("fetchHubModels", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("fetches hub prices", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue(HUB_FIXTURE),
+      }),
+    );
+
+    const data = await fetchHubModels();
+    expect(data).toEqual(HUB_FIXTURE);
+  });
+
+  it("throws on non-ok response", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        statusText: "Internal Server Error",
+      }),
+    );
+
+    await expect(fetchHubModels()).rejects.toThrow(
+      "Failed to fetch CoreInfra prices: 500 Internal Server Error",
+    );
   });
 });

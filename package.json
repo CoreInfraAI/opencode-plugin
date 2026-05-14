@@ -8,7 +8,6 @@
   "files": [
     "index.ts",
     "src",
-    "models.json",
     "README.md",
     "LICENSE"
   ],
@@ -41,5 +40,8 @@
     "@biomejs/biome": "^2.4.11",
     "vitest": "^4.1.4",
     "typescript": "^5.8.0"
+  },
+  "dependencies": {
+    "xdg-basedir": "^5.1.0"
   }
 }
