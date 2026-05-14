@@ -44,10 +44,13 @@ jobs:
         uses: extractions/setup-just@v2
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
+
+      - name: Install npm 11.5.1
+        run: npm install -g npm@11.5.1
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
