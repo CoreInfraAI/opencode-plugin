@@ -2,6 +2,9 @@
   "name": "@coreinfra/opencode-plugin",
   "version": "1.0.6",
   "license": "MPL-2.0",
+  "repository": {
+    "url": "https://github.com/CoreInfraAI/opencode-plugin"
+  },
   "type": "module",
   "main": "./index.ts",
   "module": "./index.ts",
