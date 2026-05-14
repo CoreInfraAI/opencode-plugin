@@ -8,7 +8,7 @@
 
 Установка плагина
 ```bash
-opencode plugin -g 'coreinfra-opencode-plugin@github:CoreInfraAI/opencode-plugin'
+opencode plugin -g '@coreinfra/opencode-plugin@latest'
 ```
 
 Авторизация с вводом API-токена
