@@ -3,20 +3,12 @@ import type { Config, Hooks, PluginInput } from "@opencode-ai/plugin";
 import { fetchModels } from "./models.ts";
 
 const PROVIDER_NAME = "CoreInfra AI Hub";
-const LEGACY_PROVIDER_NAMES = new Set(["coreinfra", "CoreInfra Hub"]);
-
-function resolveProviderName(currentName?: string) {
-  return !currentName || LEGACY_PROVIDER_NAMES.has(currentName)
-    ? PROVIDER_NAME
-    : currentName;
-}
 
 function ensureCoreInfraProvider(config: Config) {
   config.provider ??= {};
-  const currentName = config.provider.coreinfra?.name;
   config.provider.coreinfra = {
     ...(config.provider.coreinfra ?? {}),
-    name: resolveProviderName(currentName),
+    name: PROVIDER_NAME,
   };
 }
 
