@@ -97,7 +97,7 @@ export type ConfigModel = {
 
 function buildLookupMap(modelsDevData: ModelsDevData) {
   const byFullId = new Map<string, ModelDevEntry>();
-  const allowedProviders = new Set(["openai", "anthropic"]);
+  const allowedProviders = new Set(["openai", "anthropic", "deepseek"]);
 
   for (const [provider, providerData] of Object.entries(modelsDevData)) {
     if (!allowedProviders.has(provider) || !providerData?.models) continue;
@@ -156,8 +156,8 @@ export async function fetchHubModels(): Promise<HubResponse> {
   return res.json() as Promise<HubResponse>;
 }
 
-function checkIsAnthropic(provider: string): boolean {
-  return provider === "anthropic";
+function usesAnthropicApi(provider: string): boolean {
+  return provider === "anthropic" || provider === "deepseek";
 }
 
 export function buildConfigModels(
@@ -171,7 +171,7 @@ export function buildConfigModels(
   for (const [provider, providerData] of Object.entries(hubData.providers)) {
     if (!providerData?.models) continue;
 
-    const anthropic = checkIsAnthropic(provider);
+    const anthropic = usesAnthropicApi(provider);
 
     for (const [modelId, hubModel] of Object.entries(providerData.models)) {
       const entry = resolveEntry(provider, modelId, byFullId);
