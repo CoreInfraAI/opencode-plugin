@@ -52,6 +52,43 @@ const MODELS_DEV_FIXTURE = {
       },
     },
   },
+  deepseek: {
+    models: {
+      "deepseek-v4-pro": {
+        id: "deepseek-v4-pro",
+        name: "DeepSeek V4 Pro",
+        limit: { context: 128000, output: 32000 },
+        attachment: true,
+        reasoning: true,
+        temperature: true,
+        tool_call: true,
+        modalities: {
+          input: ["text"],
+          output: ["text"],
+        },
+        cost: { input: 1.5, output: 6, cache_read: 0.15, cache_write: 1.5 },
+      },
+      "deepseek-v4-flash": {
+        id: "deepseek-v4-flash",
+        name: "DeepSeek V4 Flash",
+        limit: { context: 128000, output: 32000 },
+        attachment: true,
+        reasoning: true,
+        temperature: true,
+        tool_call: true,
+        modalities: {
+          input: ["text"],
+          output: ["text"],
+        },
+        cost: {
+          input: 0.15,
+          output: 0.6,
+          cache_read: 0.015,
+          cache_write: 0.15,
+        },
+      },
+    },
+  },
 };
 
 const HUB_FIXTURE = {
@@ -66,6 +103,12 @@ const HUB_FIXTURE = {
         "claude-sonnet-4-20250514": { display_name: "Claude Sonnet 4" },
       },
     },
+    deepseek: {
+      models: {
+        "deepseek-v4-pro": { display_name: "DeepSeek V4 Pro" },
+        "deepseek-v4-flash": { display_name: "DeepSeek V4 Flash" },
+      },
+    },
   },
 };
 
@@ -77,7 +120,7 @@ describe("buildConfigModels", () => {
     );
 
     expect(warnings).toEqual([]);
-    expect(Object.keys(models)).toHaveLength(2);
+    expect(Object.keys(models)).toHaveLength(4);
 
     const gpt = models["gpt-5.4-nano"];
     expect(gpt).toEqual({
@@ -119,6 +162,56 @@ describe("buildConfigModels", () => {
       },
       cost: { input: 3, output: 15, cache_read: 0.3, cache_write: 3.75 },
       limit: { context: 200000, output: 64000 },
+      interleaved: { field: "reasoning_content" },
+      headers: {
+        "anthropic-beta":
+          "interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14",
+      },
+    });
+
+    const dsPro = models["deepseek-v4-pro"];
+    expect(dsPro).toEqual({
+      id: "deepseek-v4-pro",
+      name: "DeepSeek V4 Pro",
+      provider: {
+        api: "https://hub.coreinfra.ai/claude/api/v1",
+        npm: "@ai-sdk/anthropic",
+      },
+      attachment: true,
+      reasoning: true,
+      temperature: true,
+      tool_call: true,
+      modalities: {
+        input: ["text"],
+        output: ["text"],
+      },
+      cost: { input: 1.5, output: 6, cache_read: 0.15, cache_write: 1.5 },
+      limit: { context: 128000, output: 32000 },
+      interleaved: { field: "reasoning_content" },
+      headers: {
+        "anthropic-beta":
+          "interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14",
+      },
+    });
+
+    const dsFlash = models["deepseek-v4-flash"];
+    expect(dsFlash).toEqual({
+      id: "deepseek-v4-flash",
+      name: "DeepSeek V4 Flash",
+      provider: {
+        api: "https://hub.coreinfra.ai/claude/api/v1",
+        npm: "@ai-sdk/anthropic",
+      },
+      attachment: true,
+      reasoning: true,
+      temperature: true,
+      tool_call: true,
+      modalities: {
+        input: ["text"],
+        output: ["text"],
+      },
+      cost: { input: 0.15, output: 0.6, cache_read: 0.015, cache_write: 0.15 },
+      limit: { context: 128000, output: 32000 },
       interleaved: { field: "reasoning_content" },
       headers: {
         "anthropic-beta":
@@ -197,7 +290,7 @@ describe("buildConfigModels", () => {
     expect(models["shared-id"].limit.context).toBe(100000);
   });
 
-  it("does not resolve from non-openai/anthropic providers in models.dev", () => {
+  it("does not resolve from non-allowed providers in models.dev", () => {
     const modelsDevData = {
       "provider-a": {
         models: {
