@@ -31,6 +31,16 @@ const DEFAULT_COST = {
   cache_write: 0,
 };
 
+type Protocol = "openai" | "anthropic";
+
+// Providers we explicitly know how to route. Models from any provider not
+// listed here are skipped. Adding a provider is a one-line change here.
+const PROVIDERS = new Map<string, { protocol: Protocol }>([
+  ["openai", { protocol: "openai" }],
+  ["anthropic", { protocol: "anthropic" }],
+  ["deepseek", { protocol: "anthropic" }],
+]);
+
 type ModelDevEntry = {
   id?: string;
   name?: string;
@@ -97,10 +107,9 @@ export type ConfigModel = {
 
 function buildLookupMap(modelsDevData: ModelsDevData) {
   const byFullId = new Map<string, ModelDevEntry>();
-  const allowedProviders = new Set(["openai", "anthropic", "deepseek"]);
 
   for (const [provider, providerData] of Object.entries(modelsDevData)) {
-    if (!allowedProviders.has(provider) || !providerData?.models) continue;
+    if (!PROVIDERS.has(provider) || !providerData?.models) continue;
     for (const [modelId, entry] of Object.entries(providerData.models)) {
       byFullId.set(`${provider}/${modelId}`, entry);
     }
@@ -156,10 +165,6 @@ export async function fetchHubModels(): Promise<HubResponse> {
   return res.json() as Promise<HubResponse>;
 }
 
-function usesAnthropicApi(provider: string): boolean {
-  return provider === "anthropic" || provider === "deepseek";
-}
-
 export function buildConfigModels(
   modelsDevData: ModelsDevData,
   hubData: HubResponse,
@@ -169,9 +174,10 @@ export function buildConfigModels(
   const warnings: string[] = [];
 
   for (const [provider, providerData] of Object.entries(hubData.providers)) {
-    if (!providerData?.models) continue;
+    const known = PROVIDERS.get(provider);
+    if (!known || !providerData?.models) continue;
 
-    const anthropic = usesAnthropicApi(provider);
+    const anthropic = known.protocol === "anthropic";
 
     for (const [modelId, hubModel] of Object.entries(providerData.models)) {
       const entry = resolveEntry(provider, modelId, byFullId);

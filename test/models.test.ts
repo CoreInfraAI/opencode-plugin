@@ -290,36 +290,65 @@ describe("buildConfigModels", () => {
     expect(models["shared-id"].limit.context).toBe(100000);
   });
 
-  it("does not resolve from non-allowed providers in models.dev", () => {
-    const modelsDevData = {
-      "provider-a": {
-        models: {
-          "some-model": {
-            id: "some-model",
-            name: "Should Not Match",
-            cost: { input: 99 },
-          },
-        },
-      },
-    };
-
+  it("skips unknown hub providers silently", () => {
     const hubData = {
       providers: {
-        "provider-a": {
+        google: {
           models: {
-            "some-model": { display_name: "Hub Model" },
+            "gemini-3-pro": { display_name: "Gemini 3 Pro" },
           },
         },
       },
     };
 
-    const { models, warnings } = buildConfigModels(modelsDevData, hubData);
+    const { models, warnings } = buildConfigModels(MODELS_DEV_FIXTURE, hubData);
 
-    expect(warnings).toEqual([
-      "provider-a/some-model not found in models.dev — using defaults",
-    ]);
-    expect(models["some-model"].name).toBe("Hub Model");
-    expect(models["some-model"].cost.input).toBe(0);
+    expect(models).toEqual({});
+    expect(warnings).toEqual([]);
+  });
+
+  it("skips providers named like inherited object properties", () => {
+    const hubData = {
+      providers: {
+        toString: {
+          models: {
+            "evil-model": { display_name: "Evil Model" },
+          },
+        },
+        constructor: {
+          models: {
+            "ctor-model": { display_name: "Ctor Model" },
+          },
+        },
+      },
+    };
+
+    const { models, warnings } = buildConfigModels(MODELS_DEV_FIXTURE, hubData);
+
+    expect(models).toEqual({});
+    expect(warnings).toEqual([]);
+  });
+
+  it("registers only known providers when hub mixes known and unknown", () => {
+    const hubData = {
+      providers: {
+        openai: {
+          models: {
+            "gpt-5.4-nano": { display_name: "GPT-5.4 Nano" },
+          },
+        },
+        google: {
+          models: {
+            "gemini-3-pro": { display_name: "Gemini 3 Pro" },
+          },
+        },
+      },
+    };
+
+    const { models, warnings } = buildConfigModels(MODELS_DEV_FIXTURE, hubData);
+
+    expect(Object.keys(models)).toEqual(["gpt-5.4-nano"]);
+    expect(warnings).toEqual([]);
   });
 
   it("uses hub display_name as fallback when models.dev entry has no name", () => {
