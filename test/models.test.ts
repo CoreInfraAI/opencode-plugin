@@ -127,7 +127,7 @@ describe("buildConfigModels", () => {
       id: "gpt-5.4-nano",
       name: "GPT-5.4 Nano",
       provider: {
-        api: "https://hub.coreinfra.ai/codex/api/v1",
+        api: "https://hub.coreinfra.ai/openai/api/v1",
         npm: "@ai-sdk/openai",
       },
       attachment: true,
@@ -149,7 +149,7 @@ describe("buildConfigModels", () => {
       id: "claude-sonnet-4-20250514",
       name: "Claude Sonnet 4",
       provider: {
-        api: "https://hub.coreinfra.ai/claude/api/v1",
+        api: "https://hub.coreinfra.ai/anthropic/api/v1",
         npm: "@ai-sdk/anthropic",
       },
       attachment: true,
@@ -174,7 +174,7 @@ describe("buildConfigModels", () => {
       id: "deepseek-v4-pro",
       name: "DeepSeek V4 Pro",
       provider: {
-        api: "https://hub.coreinfra.ai/claude/api/v1",
+        api: "https://hub.coreinfra.ai/anthropic/api/v1",
         npm: "@ai-sdk/anthropic",
       },
       attachment: false,
@@ -199,7 +199,7 @@ describe("buildConfigModels", () => {
       id: "deepseek-v4-flash",
       name: "DeepSeek V4 Flash",
       provider: {
-        api: "https://hub.coreinfra.ai/claude/api/v1",
+        api: "https://hub.coreinfra.ai/anthropic/api/v1",
         npm: "@ai-sdk/anthropic",
       },
       attachment: false,
@@ -240,7 +240,7 @@ describe("buildConfigModels", () => {
       id: "unknown-model",
       name: "Unknown Model",
       provider: {
-        api: "https://hub.coreinfra.ai/codex/api/v1",
+        api: "https://hub.coreinfra.ai/openai/api/v1",
         npm: "@ai-sdk/openai",
       },
       attachment: true,
@@ -384,6 +384,146 @@ describe("buildConfigModels", () => {
 
     expect(models).toEqual({});
     expect(warnings).toEqual([]);
+  });
+
+  it("routes zai (GLM) through the openai chat-completions path", () => {
+    const modelsDevData = {
+      zai: {
+        models: {
+          "glm-5.2": {
+            id: "glm-5.2",
+            name: "GLM-5.2",
+            limit: { context: 128000, output: 16000 },
+            attachment: false,
+            reasoning: true,
+            temperature: true,
+            tool_call: true,
+            interleaved: { field: "reasoning_content" },
+            modalities: { input: ["text"], output: ["text"] },
+            cost: { input: 0.5, output: 2, cache_read: 0.05, cache_write: 0 },
+          },
+          "glm-4.7": {
+            id: "glm-4.7",
+            name: "GLM-4.7",
+            limit: { context: 128000, output: 16000 },
+            attachment: false,
+            reasoning: true,
+            temperature: true,
+            tool_call: true,
+            interleaved: { field: "reasoning_content" },
+            modalities: { input: ["text"], output: ["text"] },
+            cost: { input: 0.2, output: 0.8, cache_read: 0.02, cache_write: 0 },
+          },
+        },
+      },
+    };
+
+    const hubData = {
+      providers: {
+        zai: {
+          models: {
+            "glm-5.2": { display_name: "GLM-5.2" },
+            "glm-4.7": { display_name: "GLM-4.7" },
+          },
+        },
+      },
+    };
+
+    const { models, warnings } = buildConfigModels(modelsDevData, hubData);
+
+    expect(warnings).toEqual([]);
+    expect(Object.keys(models)).toHaveLength(2);
+
+    expect(models["glm-5.2"]).toEqual({
+      id: "glm-5.2",
+      name: "GLM-5.2",
+      provider: {
+        api: "https://hub.coreinfra.ai/openai/api/v1",
+        // zai uses the openai-compatible SDK -> Chat Completions (/chat/completions),
+        // NOT the openai SDK which would use the Responses API (/responses).
+        npm: "@ai-sdk/openai-compatible",
+      },
+      attachment: false,
+      reasoning: true,
+      temperature: true,
+      tool_call: true,
+      modalities: { input: ["text"], output: ["text"] },
+      cost: { input: 0.5, output: 2, cache_read: 0.05, cache_write: 0 },
+      limit: { context: 128000, output: 16000 },
+      interleaved: { field: "reasoning_content" },
+      headers: {},
+    });
+  });
+
+  it("uses Responses API for openai but Chat Completions for zai", () => {
+    const modelsDevData = {
+      openai: { models: { "gpt-x": { name: "GPT X" } } },
+      zai: { models: { "glm-x": { name: "GLM X" } } },
+    };
+    const hubData = {
+      providers: {
+        openai: { models: { "gpt-x": { display_name: "GPT X" } } },
+        zai: { models: { "glm-x": { display_name: "GLM X" } } },
+      },
+    };
+    const { models } = buildConfigModels(modelsDevData, hubData);
+
+    // openai -> @ai-sdk/openai (Responses API, /responses)
+    expect(models["gpt-x"].provider.npm).toBe("@ai-sdk/openai");
+    // zai -> @ai-sdk/openai-compatible (Chat Completions, /chat/completions)
+    expect(models["glm-x"].provider.npm).toBe("@ai-sdk/openai-compatible");
+    // both share the same hub base URL (the hub routes by model name)
+    expect(models["gpt-x"].provider.api).toBe(models["glm-x"].provider.api);
+  });
+
+  it("respects models.dev interleaved and falls back per protocol", () => {
+    // openai-protocol zai model: explicit interleaved wins over protocol default
+    const explicit = buildConfigModels(
+      {
+        zai: {
+          models: {
+            "glm-5.2": {
+              name: "GLM-5.2",
+              interleaved: { field: "reasoning_content" },
+            },
+          },
+        },
+      },
+      {
+        providers: {
+          zai: { models: { "glm-5.2": { display_name: "GLM-5.2" } } },
+        },
+      },
+    );
+    expect(explicit.models["glm-5.2"].interleaved).toEqual({
+      field: "reasoning_content",
+    });
+
+    // openai-protocol zai model without interleaved -> default true
+    const openaiFallback = buildConfigModels(
+      { zai: { models: { "glm-4.5": { name: "GLM-4.5" } } } },
+      {
+        providers: {
+          zai: { models: { "glm-4.5": { display_name: "GLM-4.5" } } },
+        },
+      },
+    );
+    expect(openaiFallback.models["glm-4.5"].interleaved).toBe(true);
+
+    // anthropic-protocol model without interleaved -> default reasoning_content field
+    const anthropicFallback = buildConfigModels(
+      { anthropic: { models: { "claude-x": { name: "Claude X" } } } },
+      {
+        providers: {
+          anthropic: {
+            models: { "claude-x": { display_name: "Claude X" } },
+          },
+        },
+      },
+    );
+    expect(anthropicFallback.models["claude-x"].interleaved).toEqual({
+      field: "reasoning_content",
+    });
   });
 });
 
