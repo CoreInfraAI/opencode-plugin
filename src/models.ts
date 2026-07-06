@@ -12,8 +12,8 @@ const CACHE_PATH = join(
 const MODELS_DEV_URL = "https://models.dev/api.json";
 const DEFAULT_HUB_BASE = "https://hub.coreinfra.ai";
 const HUB_URL = `${process.env.COREINFRA_HUB_BASE_URL ?? DEFAULT_HUB_BASE}/hub/api/prices`;
-const OPENAI_BASE = `${process.env.COREINFRA_HUB_BASE_URL ?? DEFAULT_HUB_BASE}/codex/api/v1`;
-const ANTHROPIC_BASE = `${process.env.COREINFRA_HUB_BASE_URL ?? DEFAULT_HUB_BASE}/claude/api/v1`;
+const OPENAI_BASE = `${process.env.COREINFRA_HUB_BASE_URL ?? DEFAULT_HUB_BASE}/openai/api/v1`;
+const ANTHROPIC_BASE = `${process.env.COREINFRA_HUB_BASE_URL ?? DEFAULT_HUB_BASE}/anthropic/api/v1`;
 const ANTHROPIC_BETA_HEADER =
   "interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14";
 
@@ -34,11 +34,15 @@ const DEFAULT_COST = {
 type Protocol = "openai" | "anthropic";
 
 // Providers we explicitly know how to route. Models from any provider not
-// listed here are skipped. Adding a provider is a one-line change here.
-const PROVIDERS = new Map<string, { protocol: Protocol }>([
-  ["openai", { protocol: "openai" }],
-  ["anthropic", { protocol: "anthropic" }],
-  ["deepseek", { protocol: "anthropic" }],
+// listed here are skipped. Adding a provider is a one-line change here. The
+// `npm` package selects the wire API: `@ai-sdk/openai` targets OpenAI's
+// Responses API (`/responses`), while `@ai-sdk/openai-compatible` targets the
+// Chat Completions API (`/chat/completions`).
+const PROVIDERS = new Map<string, { protocol: Protocol; npm: string }>([
+  ["openai", { protocol: "openai", npm: "@ai-sdk/openai" }],
+  ["anthropic", { protocol: "anthropic", npm: "@ai-sdk/anthropic" }],
+  ["deepseek", { protocol: "anthropic", npm: "@ai-sdk/anthropic" }],
+  ["zai", { protocol: "openai", npm: "@ai-sdk/openai-compatible" }],
 ]);
 
 type ModelDevEntry = {
@@ -49,6 +53,7 @@ type ModelDevEntry = {
   reasoning?: boolean;
   temperature?: boolean;
   tool_call?: boolean;
+  interleaved?: boolean | { field: string };
   modalities?: { input?: string[]; output?: string[] };
   cost?: {
     input?: number;
@@ -193,7 +198,7 @@ export function buildConfigModels(
         name: entry?.name ?? hubModel.display_name,
         provider: {
           api: anthropic ? ANTHROPIC_BASE : OPENAI_BASE,
-          npm: anthropic ? "@ai-sdk/anthropic" : "@ai-sdk/openai",
+          npm: known.npm,
         },
         attachment: entry?.attachment ?? DEFAULT_CAPS.attachment,
         reasoning: entry?.reasoning ?? DEFAULT_CAPS.reasoning,
@@ -214,7 +219,9 @@ export function buildConfigModels(
           context: entry?.limit?.context ?? DEFAULT_LIMIT.context,
           output: entry?.limit?.output ?? DEFAULT_LIMIT.output,
         },
-        interleaved: anthropic ? { field: "reasoning_content" } : true,
+        interleaved:
+          entry?.interleaved ??
+          (anthropic ? { field: "reasoning_content" } : true),
         headers: anthropic ? { "anthropic-beta": ANTHROPIC_BETA_HEADER } : {},
       };
     }

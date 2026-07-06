@@ -21,8 +21,8 @@ During authentication, you will need a [CoreInfra AI Hub](https://hub.coreinfra.
 ## Features
 
 - **Up-to-date model list** - the catalog is loaded dynamically from the Hub API on every startup and always reflects its current state. Model capabilities (context limits, reasoning, tool use, etc.) are resolved from the models.dev catalog.
-- **OpenAI and Anthropic models** - both model families are supported, including GPT-5.x and Claude 4.x.
-- **Reasoning support** - `interleaved thinking` mode is enabled automatically for Anthropic models.
+- **All available models** - every model exposed by the Hub is supported.
+- **Reasoning support** - `interleaved thinking` mode is enabled automatically where applicable.
 
 ## Limitations
 

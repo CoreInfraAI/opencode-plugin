@@ -178,7 +178,7 @@ describe("config hook", () => {
       id: "gpt-5.4-nano",
       name: "GPT-5.4 Nano",
       provider: {
-        api: "https://hub.coreinfra.ai/codex/api/v1",
+        api: "https://hub.coreinfra.ai/openai/api/v1",
         npm: "@ai-sdk/openai",
       },
       attachment: true,
@@ -196,7 +196,7 @@ describe("config hook", () => {
       id: "claude-sonnet-4-20250514",
       name: "Claude Sonnet 4",
       provider: {
-        api: "https://hub.coreinfra.ai/claude/api/v1",
+        api: "https://hub.coreinfra.ai/anthropic/api/v1",
         npm: "@ai-sdk/anthropic",
       },
       attachment: true,
@@ -217,7 +217,7 @@ describe("config hook", () => {
       id: "deepseek-v4-pro",
       name: "DeepSeek V4 Pro",
       provider: {
-        api: "https://hub.coreinfra.ai/claude/api/v1",
+        api: "https://hub.coreinfra.ai/anthropic/api/v1",
         npm: "@ai-sdk/anthropic",
       },
       attachment: false,
@@ -238,7 +238,7 @@ describe("config hook", () => {
       id: "deepseek-v4-flash",
       name: "DeepSeek V4 Flash",
       provider: {
-        api: "https://hub.coreinfra.ai/claude/api/v1",
+        api: "https://hub.coreinfra.ai/anthropic/api/v1",
         npm: "@ai-sdk/anthropic",
       },
       attachment: false,
