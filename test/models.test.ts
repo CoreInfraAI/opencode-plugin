@@ -455,6 +455,63 @@ describe("buildConfigModels", () => {
     });
   });
 
+  it("merges Moonshot AI with OpenCode's built-in provider", () => {
+    const modelsDevData = {
+      moonshotai: {
+        models: {
+          "kimi-k3": {
+            id: "kimi-k3",
+            name: "Kimi K3",
+            limit: { context: 1048576, output: 131072 },
+            attachment: true,
+            reasoning: true,
+            temperature: false,
+            tool_call: true,
+            interleaved: { field: "reasoning_content" },
+            modalities: {
+              input: ["text", "image", "video"],
+              output: ["text"],
+            },
+            cost: { input: 3, output: 15, cache_read: 0.3 },
+          },
+        },
+      },
+    };
+    const hubData = {
+      providers: {
+        moonshotai: {
+          models: {
+            "kimi-k3": { display_name: "Kimi K3 from Hub" },
+          },
+        },
+      },
+    };
+
+    const { models, warnings } = buildConfigModels(modelsDevData, hubData);
+
+    expect(warnings).toEqual([]);
+    expect(models["kimi-k3"]).toEqual({
+      id: "kimi-k3",
+      name: "Kimi K3",
+      provider: {
+        api: "https://hub.coreinfra.ai/openai/api/v1",
+        npm: "@ai-sdk/openai-compatible",
+      },
+      attachment: true,
+      reasoning: true,
+      temperature: false,
+      tool_call: true,
+      modalities: {
+        input: ["text", "image", "video"],
+        output: ["text"],
+      },
+      cost: { input: 3, output: 15, cache_read: 0.3, cache_write: 0 },
+      limit: { context: 1048576, output: 131072 },
+      interleaved: { field: "reasoning_content" },
+      headers: {},
+    });
+  });
+
   it("uses Responses API for openai but Chat Completions for zai", () => {
     const modelsDevData = {
       openai: { models: { "gpt-x": { name: "GPT X" } } },
