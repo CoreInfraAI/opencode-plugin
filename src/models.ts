@@ -43,6 +43,7 @@ const PROVIDERS = new Map<string, { protocol: Protocol; npm: string }>([
   ["anthropic", { protocol: "anthropic", npm: "@ai-sdk/anthropic" }],
   ["deepseek", { protocol: "anthropic", npm: "@ai-sdk/anthropic" }],
   ["zai", { protocol: "openai", npm: "@ai-sdk/openai-compatible" }],
+  ["moonshotai", { protocol: "openai", npm: "@ai-sdk/openai-compatible" }],
 ]);
 
 type ModelDevEntry = {
