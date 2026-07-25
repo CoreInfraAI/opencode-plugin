@@ -41,7 +41,13 @@ type Protocol = "openai" | "anthropic";
 const PROVIDERS = new Map<string, { protocol: Protocol; npm: string }>([
   ["openai", { protocol: "openai", npm: "@ai-sdk/openai" }],
   ["anthropic", { protocol: "anthropic", npm: "@ai-sdk/anthropic" }],
-  ["deepseek", { protocol: "anthropic", npm: "@ai-sdk/anthropic" }],
+  // DeepSeek must use Chat Completions, not the Anthropic protocol: the
+  // Anthropic message format drops reasoning blocks that carry no signature,
+  // and DeepSeek never issues one. A reasoning-only assistant turn then lowers
+  // to `content: []` and the API rejects the whole request with "all messages
+  // must have non-empty content", while `reasoning_content` never survives the
+  // round-trip that DeepSeek's thinking mode requires.
+  ["deepseek", { protocol: "openai", npm: "@ai-sdk/openai-compatible" }],
   ["zai", { protocol: "openai", npm: "@ai-sdk/openai-compatible" }],
   ["moonshotai", { protocol: "openai", npm: "@ai-sdk/openai-compatible" }],
 ]);
