@@ -67,6 +67,7 @@ const MODELS_DEV_FIXTURE = {
           output: ["text"],
         },
         cost: { input: 1.5, output: 6, cache_read: 0.15, cache_write: 1.5 },
+        interleaved: { field: "reasoning_content" },
       },
       "deepseek-v4-flash": {
         id: "deepseek-v4-flash",
@@ -86,6 +87,7 @@ const MODELS_DEV_FIXTURE = {
           cache_read: 0.015,
           cache_write: 0.15,
         },
+        interleaved: { field: "reasoning_content" },
       },
     },
   },
@@ -174,8 +176,8 @@ describe("buildConfigModels", () => {
       id: "deepseek-v4-pro",
       name: "DeepSeek V4 Pro",
       provider: {
-        api: "https://hub.coreinfra.ai/anthropic/api/v1",
-        npm: "@ai-sdk/anthropic",
+        api: "https://hub.coreinfra.ai/openai/api/v1",
+        npm: "@ai-sdk/openai-compatible",
       },
       attachment: false,
       reasoning: true,
@@ -188,10 +190,7 @@ describe("buildConfigModels", () => {
       cost: { input: 1.5, output: 6, cache_read: 0.15, cache_write: 1.5 },
       limit: { context: 1000000, output: 384000 },
       interleaved: { field: "reasoning_content" },
-      headers: {
-        "anthropic-beta":
-          "interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14",
-      },
+      headers: {},
     });
 
     const dsFlash = models["deepseek-v4-flash"];
@@ -199,8 +198,8 @@ describe("buildConfigModels", () => {
       id: "deepseek-v4-flash",
       name: "DeepSeek V4 Flash",
       provider: {
-        api: "https://hub.coreinfra.ai/anthropic/api/v1",
-        npm: "@ai-sdk/anthropic",
+        api: "https://hub.coreinfra.ai/openai/api/v1",
+        npm: "@ai-sdk/openai-compatible",
       },
       attachment: false,
       reasoning: true,
@@ -213,10 +212,7 @@ describe("buildConfigModels", () => {
       cost: { input: 0.15, output: 0.6, cache_read: 0.015, cache_write: 0.15 },
       limit: { context: 1000000, output: 384000 },
       interleaved: { field: "reasoning_content" },
-      headers: {
-        "anthropic-beta":
-          "interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14",
-      },
+      headers: {},
     });
   });
 
