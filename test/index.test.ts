@@ -9,9 +9,9 @@ vi.mock("node:fs/promises", () => ({
   readFile: vi.fn(),
 }));
 
-function mockInput(): PluginInput {
+function mockInput() {
   const log = vi.fn().mockResolvedValue(undefined);
-  return {
+  const input = {
     client: {
       app: { log },
     },
@@ -20,7 +20,8 @@ function mockInput(): PluginInput {
     worktree: "/tmp",
     serverUrl: new URL("http://localhost:3000"),
     $: {} as PluginInput["$"],
-  };
+  } as PluginInput;
+  return { input, log };
 }
 
 const MODELS_DEV_DATA = {
@@ -166,7 +167,8 @@ describe("config hook", () => {
   it("populates config with full capabilities from models.dev", async () => {
     await setupFetchMocks();
 
-    const hooks: Hooks = await plugin(mockInput());
+    const { input } = mockInput();
+    const hooks: Hooks = await plugin(input);
     const config = { provider: {} } as Parameters<
       NonNullable<Hooks["config"]>
     >[0];
@@ -255,7 +257,8 @@ describe("config hook", () => {
   it("uses defaults when models.dev has no matching model", async () => {
     await setupFetchMocks({ modelsDevData: {} });
 
-    const hooks: Hooks = await plugin(mockInput());
+    const { input } = mockInput();
+    const hooks: Hooks = await plugin(input);
     const config = { provider: {} } as Parameters<
       NonNullable<Hooks["config"]>
     >[0];
@@ -275,7 +278,8 @@ describe("config hook", () => {
   it("leaves models empty on fetchModels failure", async () => {
     await setupFetchMocks({ fetchError: new Error("network down") });
 
-    const hooks: Hooks = await plugin(mockInput());
+    const { input } = mockInput();
+    const hooks: Hooks = await plugin(input);
     const config = { provider: {} } as Parameters<
       NonNullable<Hooks["config"]>
     >[0];
@@ -285,12 +289,127 @@ describe("config hook", () => {
     expect(config.provider?.coreinfra?.name).toBe("CoreInfra AI Hub");
     expect(config.provider?.coreinfra?.models).toBeUndefined();
   });
+
+  it("logs the failure without retrying when the hub returns 401", async () => {
+    vi.stubEnv("COREINFRA_API_KEY", "bad-key");
+    const { readFile } = await import("node:fs/promises");
+    vi.mocked(readFile).mockResolvedValue(JSON.stringify(MODELS_DEV_DATA));
+
+    const hubCalls: Array<{ headers?: Record<string, string> }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(
+        (
+          url: string,
+          init?: { headers?: Record<string, string> },
+        ): Promise<{
+          ok: boolean;
+          status?: number;
+          statusText?: string;
+          json: () => Promise<object>;
+        }> => {
+          if (url.includes("models.dev")) {
+            return Promise.resolve({
+              ok: true,
+              json: () => Promise.resolve(MODELS_DEV_DATA),
+            });
+          }
+          hubCalls.push({ headers: init?.headers });
+          if (hubCalls.length === 1) {
+            return Promise.resolve({
+              ok: false,
+              status: 401,
+              statusText: "Unauthorized",
+              json: () => Promise.resolve({}),
+            });
+          }
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(hubResponse()),
+          });
+        },
+      ),
+    );
+
+    const { input, log } = mockInput();
+    const hooks: Hooks = await plugin(input);
+    const config = { provider: {} } as Parameters<
+      NonNullable<Hooks["config"]>
+    >[0];
+
+    await hooks.config?.(config);
+
+    expect(hubCalls).toHaveLength(1);
+    expect(hubCalls[0]?.headers).toEqual({ "X-CoreInfra-Api-Key": "bad-key" });
+
+    expect(config.provider?.coreinfra?.models).toBeUndefined();
+
+    expect(log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.objectContaining({
+          level: "error",
+          message: "fetchModels failed",
+          extra: {
+            error: "Failed to fetch CoreInfra prices: 401 Unauthorized",
+          },
+        }),
+      }),
+    );
+  });
+
+  it("does not retry when the hub accepts the key", async () => {
+    vi.stubEnv("COREINFRA_API_KEY", "good-key");
+    const { readFile } = await import("node:fs/promises");
+    vi.mocked(readFile).mockResolvedValue(JSON.stringify(MODELS_DEV_DATA));
+
+    const hubCalls: Array<{ headers?: Record<string, string> }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockImplementation(
+          (url: string, init?: { headers?: Record<string, string> }) => {
+            if (url.includes("models.dev")) {
+              return Promise.resolve({
+                ok: true,
+                json: () => Promise.resolve(MODELS_DEV_DATA),
+              });
+            }
+            hubCalls.push({ headers: init?.headers });
+            return Promise.resolve({
+              ok: true,
+              json: () => Promise.resolve(hubResponse()),
+            });
+          },
+        ),
+    );
+
+    const { input, log } = mockInput();
+    const hooks: Hooks = await plugin(input);
+    const config = { provider: {} } as Parameters<
+      NonNullable<Hooks["config"]>
+    >[0];
+
+    await hooks.config?.(config);
+
+    expect(hubCalls).toHaveLength(1);
+    expect(hubCalls[0]?.headers).toEqual({
+      "X-CoreInfra-Api-Key": "good-key",
+    });
+    expect(config.provider?.coreinfra?.models?.["gpt-5.4-nano"]).toBeDefined();
+    expect(log).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.objectContaining({ level: "warn" }),
+      }),
+    );
+  });
 });
 
 describe("auth hook", () => {
   it("returns apiKey from auth loader", async () => {
     await setupFetchMocks({ hubData: { providers: {} } });
-    const hooks: Hooks = await plugin(mockInput());
+    const { input } = mockInput();
+    const hooks: Hooks = await plugin(input);
     const getAuth = vi.fn().mockResolvedValue({ type: "api", key: "sk-test" });
     const providerArg = {} as Parameters<
       NonNullable<Hooks["auth"]>["loader"]
@@ -301,7 +420,8 @@ describe("auth hook", () => {
 
   it("returns empty object when no auth", async () => {
     await setupFetchMocks({ hubData: { providers: {} } });
-    const hooks: Hooks = await plugin(mockInput());
+    const { input } = mockInput();
+    const hooks: Hooks = await plugin(input);
     const getAuth = vi.fn().mockResolvedValue(null);
     const providerArg = {} as Parameters<
       NonNullable<Hooks["auth"]>["loader"]

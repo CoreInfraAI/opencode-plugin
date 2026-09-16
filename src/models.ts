@@ -1,13 +1,18 @@
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { xdgCache } from "xdg-basedir";
+import { xdgCache, xdgData } from "xdg-basedir";
 
 const FETCH_TIMEOUT_MS = 10_000;
 const CACHE_PATH = join(
   xdgCache ?? join(homedir(), ".cache"),
   "opencode",
   "models.json",
+);
+const AUTH_PATH = join(
+  xdgData ?? join(homedir(), ".local", "share"),
+  "opencode",
+  "auth.json",
 );
 const MODELS_DEV_URL = "https://models.dev/api.json";
 const DEFAULT_HUB_BASE = "https://hub.coreinfra.ai";
@@ -88,7 +93,7 @@ type HubResponse = {
   };
 };
 
-export type ConfigModel = {
+type ConfigModel = {
   id: string;
   name: string;
   provider: {
@@ -165,8 +170,32 @@ export async function fetchModelsDevData(): Promise<ModelsDevData> {
   }
 }
 
+type AuthStore = { [provider: string]: { type?: string; key?: string } };
+
+// The config hook runs before OpenCode consults our auth.loader, so the key
+// has to be resolved independently: first from the environment, then from the
+// auth store OpenCode writes for `opencode auth login`. Every failure on the
+// store path (missing file, bad JSON, no usable entry) means "no key".
+async function resolveHubApiKey(): Promise<string | undefined> {
+  const fromEnv = process.env.COREINFRA_API_KEY?.trim();
+  if (fromEnv) return fromEnv;
+
+  try {
+    const raw = await readFile(AUTH_PATH, "utf-8");
+    const store = JSON.parse(raw) as AuthStore;
+    const entry = store["coreinfra"];
+    const key = entry?.type === "api" ? entry.key?.trim() : undefined;
+    if (key) return key;
+  } catch {
+    // best-effort: anything wrong here just means no key
+  }
+  return undefined;
+}
+
 export async function fetchHubModels(): Promise<HubResponse> {
+  const apiKey = await resolveHubApiKey();
   const res = await fetch(HUB_URL, {
+    headers: apiKey ? { "X-CoreInfra-Api-Key": apiKey } : undefined,
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
   if (!res.ok) {

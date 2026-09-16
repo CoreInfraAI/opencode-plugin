@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildConfigModels,
@@ -628,7 +628,118 @@ describe("fetchModelsDevData", () => {
   });
 });
 
+describe("fetchHubModels authentication", () => {
+  const AUTH_STORE = {
+    coreinfra: { type: "api", key: "stored-key" },
+    other: { type: "api", key: "other-key" },
+  };
+
+  beforeEach(() => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue(HUB_FIXTURE),
+      }),
+    );
+  });
+
+  async function expectAuthHeader(key?: string) {
+    await expect(fetchHubModels()).resolves.toEqual(HUB_FIXTURE);
+    expect(fetch).toHaveBeenCalledExactlyOnceWith(
+      "https://hub.coreinfra.ai/hub/api/prices",
+      {
+        headers: key ? { "X-CoreInfra-Api-Key": key } : undefined,
+        signal: expect.any(AbortSignal),
+      },
+    );
+  }
+
+  it("prefers COREINFRA_API_KEY over the auth store", async () => {
+    const { readFile } = await import("node:fs/promises");
+    vi.mocked(readFile).mockResolvedValue(JSON.stringify(AUTH_STORE));
+    vi.stubEnv("COREINFRA_API_KEY", "env-key");
+
+    await expectAuthHeader("env-key");
+    expect(readFile).not.toHaveBeenCalled();
+  });
+
+  it("trims COREINFRA_API_KEY", async () => {
+    vi.stubEnv("COREINFRA_API_KEY", "  env-key  ");
+
+    await expectAuthHeader("env-key");
+  });
+
+  it("falls back to the coreinfra entry in the auth store", async () => {
+    const { readFile } = await import("node:fs/promises");
+    vi.mocked(readFile).mockResolvedValue(JSON.stringify(AUTH_STORE));
+    vi.stubEnv("COREINFRA_API_KEY", "");
+
+    await expectAuthHeader("stored-key");
+  });
+
+  it("ignores a blank env var and falls through to the auth store", async () => {
+    const { readFile } = await import("node:fs/promises");
+    vi.mocked(readFile).mockResolvedValue(JSON.stringify(AUTH_STORE));
+    vi.stubEnv("COREINFRA_API_KEY", "   ");
+
+    await expectAuthHeader("stored-key");
+  });
+
+  it("sends no auth header when the auth store file is missing", async () => {
+    const { readFile } = await import("node:fs/promises");
+    vi.mocked(readFile).mockRejectedValue(new Error("ENOENT"));
+    vi.stubEnv("COREINFRA_API_KEY", "");
+
+    await expectAuthHeader();
+  });
+
+  it("sends no auth header on invalid JSON", async () => {
+    const { readFile } = await import("node:fs/promises");
+    vi.mocked(readFile).mockResolvedValue("not json");
+    vi.stubEnv("COREINFRA_API_KEY", "");
+
+    await expectAuthHeader();
+  });
+
+  it("sends no auth header when there is no coreinfra entry", async () => {
+    const { readFile } = await import("node:fs/promises");
+    vi.mocked(readFile).mockResolvedValue(
+      JSON.stringify({ other: { type: "api", key: "other-key" } }),
+    );
+    vi.stubEnv("COREINFRA_API_KEY", "");
+
+    await expectAuthHeader();
+  });
+
+  it("sends no auth header when the entry type is not api", async () => {
+    const { readFile } = await import("node:fs/promises");
+    vi.mocked(readFile).mockResolvedValue(
+      JSON.stringify({ coreinfra: { type: "oauth", key: "token" } }),
+    );
+    vi.stubEnv("COREINFRA_API_KEY", "");
+
+    await expectAuthHeader();
+  });
+
+  it("sends no auth header when the stored key is blank", async () => {
+    const { readFile } = await import("node:fs/promises");
+    vi.mocked(readFile).mockResolvedValue(
+      JSON.stringify({ coreinfra: { type: "api", key: "   " } }),
+    );
+    vi.stubEnv("COREINFRA_API_KEY", "");
+
+    await expectAuthHeader();
+  });
+});
+
 describe("fetchHubModels", () => {
+  beforeEach(async () => {
+    vi.stubEnv("COREINFRA_API_KEY", "");
+    const { readFile } = await import("node:fs/promises");
+    vi.mocked(readFile).mockRejectedValue(new Error("ENOENT"));
+  });
+
   afterEach(() => {
     vi.unstubAllGlobals();
   });
@@ -646,7 +757,69 @@ describe("fetchHubModels", () => {
     expect(data).toEqual(HUB_FIXTURE);
   });
 
+  it("sends the key in X-CoreInfra-Api-Key when configured", async () => {
+    vi.stubEnv("COREINFRA_API_KEY", "test-key");
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue(HUB_FIXTURE),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(fetchHubModels()).resolves.toEqual(HUB_FIXTURE);
+    expect(fetchMock.mock.calls[0]?.[1]).toEqual({
+      headers: { "X-CoreInfra-Api-Key": "test-key" },
+      signal: expect.any(AbortSignal),
+    });
+  });
+
+  it("sends no auth header without a key", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue(HUB_FIXTURE),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchHubModels();
+    expect(fetchMock.mock.calls[0]?.[1]).toEqual({
+      headers: undefined,
+      signal: expect.any(AbortSignal),
+    });
+  });
+
+  it("throws the generic error on 401 when a key was sent", async () => {
+    vi.stubEnv("COREINFRA_API_KEY", "secret-key");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        statusText: "Unauthorized",
+      }),
+    );
+
+    await expect(fetchHubModels()).rejects.toThrow(
+      "Failed to fetch CoreInfra prices: 401 Unauthorized",
+    );
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the generic error on 401 without a key", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        statusText: "Unauthorized",
+      }),
+    );
+
+    await expect(fetchHubModels()).rejects.toThrow(
+      "Failed to fetch CoreInfra prices: 401 Unauthorized",
+    );
+  });
+
   it("throws on non-ok response", async () => {
+    vi.stubEnv("COREINFRA_API_KEY", "secret-key");
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
