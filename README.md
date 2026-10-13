@@ -4,7 +4,21 @@ Plugin for [OpenCode](https://opencode.ai) that adds [CoreInfra AI Hub](https://
 
 ## Installation
 
-**Important:** requires OpenCode version 1.4.0 or newer
+Works with OpenCode 1.x (1.4.0 or newer) and OpenCode 2.x (2.0.28 or newer).
+
+### OpenCode 2
+
+Install the plugin
+```bash
+opencode plugin add '@coreinfra/opencode-plugin@latest'
+```
+
+Log in by entering the API token
+```bash
+opencode auth login coreinfra
+```
+
+### OpenCode 1
 
 Install the plugin
 ```bash
@@ -55,6 +69,7 @@ https://hub.coreinfra.ai/pricing
 
 | Variable | Default | Description |
 |---|---|---|
+| `COREINFRA_API_KEY` | — | On OpenCode 2, an API token to use instead of logging in (a saved login takes precedence). On OpenCode 1 it only authenticates loading the model list; logging in is still required. |
 | `COREINFRA_HUB_BASE_URL` | `https://hub.coreinfra.ai` | Base URL of the CoreInfra Hub instance. Overrides the default endpoint for model listings and API proxying. |
 
 ## Development
