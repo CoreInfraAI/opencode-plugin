@@ -34,15 +34,28 @@
   },
   "peerDependencies": {
     "@opencode-ai/plugin": ">=1.4.0",
-    "@opencode-ai/sdk": ">=1.4.0"
+    "@opencode-ai/sdk": ">=1.4.0",
+    "@opencode/plugin": ">=2.0.28"
+  },
+  "peerDependenciesMeta": {
+    "@opencode-ai/plugin": {
+      "optional": true
+    },
+    "@opencode-ai/sdk": {
+      "optional": true
+    },
+    "@opencode/plugin": {
+      "optional": true
+    }
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.4.11",
     "@opencode-ai/plugin": "1.4.0",
     "@opencode-ai/sdk": "1.4.0",
+    "@opencode/plugin": "2.0.28",
     "@types/node": "^24.9.0",
-    "@biomejs/biome": "^2.4.11",
-    "vitest": "^4.1.4",
-    "typescript": "^5.8.0"
+    "typescript": "^5.8.0",
+    "vitest": "^4.1.4"
   },
   "dependencies": {
     "xdg-basedir": "^5.1.0"

@@ -4,6 +4,8 @@ import {
   buildConfigModels,
   fetchModelsDevData,
   fetchHubModels,
+  listHubModels,
+  resolveLegacyHubApiKey,
 } from "../src/models.ts";
 
 vi.mock("node:fs/promises", () => ({
@@ -508,6 +510,79 @@ describe("buildConfigModels", () => {
     });
   });
 
+  // OpenCode 1 guesses chat efforts from the model ID and offered no "max" for
+  // the Hub's deepseek-flash alias; the models.dev effort list is used instead.
+  it("uses the models.dev effort list for chat-route variants", () => {
+    const modelsDevData = {
+      deepseek: {
+        models: {
+          "deepseek-flash": {
+            name: "DeepSeek V4.1 Flash",
+            reasoning_options: [
+              { type: "toggle" },
+              { type: "effort", values: ["low", "high", "max", null] },
+            ],
+          },
+          "deepseek-plain": { name: "No reasoning options" },
+        },
+      },
+      openai: {
+        models: {
+          "gpt-x": {
+            name: "GPT X",
+            reasoning_options: [{ type: "effort", values: ["low"] }],
+          },
+        },
+      },
+    };
+    const hubData = {
+      providers: {
+        deepseek: {
+          models: {
+            "deepseek-flash": { display_name: "DeepSeek V4.1 Flash" },
+            "deepseek-plain": { display_name: "Plain" },
+          },
+        },
+        openai: { models: { "gpt-x": { display_name: "GPT X" } } },
+      },
+    };
+
+    const { models } = buildConfigModels(modelsDevData, hubData);
+
+    expect(models["deepseek-flash"]?.variants).toEqual({
+      none: { disabled: true },
+      minimal: { disabled: true },
+      low: { reasoningEffort: "low" },
+      medium: { disabled: true },
+      high: { reasoningEffort: "high" },
+      xhigh: { disabled: true },
+      max: { reasoningEffort: "max" },
+    });
+    expect(models["deepseek-plain"]?.variants).toBeUndefined();
+    expect(models["gpt-x"]?.variants).toBeUndefined();
+  });
+
+  // Moonshot only accepts temperature 1; models.dev marking a Kimi model as
+  // tunable made OpenCode's title agent send another value and fail.
+  it("never lets OpenCode send a temperature to Moonshot", () => {
+    const modelsDevData = {
+      moonshotai: {
+        models: { "kimi-k2.6": { name: "Kimi K2.6", temperature: true } },
+      },
+    };
+    const hubData = {
+      providers: {
+        moonshotai: {
+          models: { "kimi-k2.6": { display_name: "Kimi K2.6" } },
+        },
+      },
+    };
+
+    const { models } = buildConfigModels(modelsDevData, hubData);
+
+    expect(models["kimi-k2.6"]?.temperature).toBe(false);
+  });
+
   it("uses Responses API for openai but Chat Completions for zai", () => {
     const modelsDevData = {
       openai: { models: { "gpt-x": { name: "GPT X" } } },
@@ -628,7 +703,7 @@ describe("fetchModelsDevData", () => {
   });
 });
 
-describe("fetchHubModels authentication", () => {
+describe("resolveLegacyHubApiKey", () => {
   const AUTH_STORE = {
     coreinfra: { type: "api", key: "stored-key" },
     other: { type: "api", key: "other-key" },
@@ -645,7 +720,9 @@ describe("fetchHubModels authentication", () => {
   });
 
   async function expectAuthHeader(key?: string) {
-    await expect(fetchHubModels()).resolves.toEqual(HUB_FIXTURE);
+    await expect(
+      fetchHubModels(await resolveLegacyHubApiKey()),
+    ).resolves.toEqual(HUB_FIXTURE);
     expect(fetch).toHaveBeenCalledExactlyOnceWith(
       "https://hub.coreinfra.ai/hub/api/prices",
       {
@@ -758,18 +835,33 @@ describe("fetchHubModels", () => {
   });
 
   it("sends the key in X-CoreInfra-Api-Key when configured", async () => {
-    vi.stubEnv("COREINFRA_API_KEY", "test-key");
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       json: vi.fn().mockResolvedValue(HUB_FIXTURE),
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(fetchHubModels()).resolves.toEqual(HUB_FIXTURE);
+    await expect(fetchHubModels("test-key")).resolves.toEqual(HUB_FIXTURE);
     expect(fetchMock.mock.calls[0]?.[1]).toEqual({
       headers: { "X-CoreInfra-Api-Key": "test-key" },
       signal: expect.any(AbortSignal),
     });
+  });
+
+  // OpenCode 2 passes the key from its own credential store; the fetcher must
+  // never fall back to the OpenCode 1 environment or auth.json lookup.
+  it("does not resolve a key on its own", async () => {
+    vi.stubEnv("COREINFRA_API_KEY", "env-key");
+    const { readFile } = await import("node:fs/promises");
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue(HUB_FIXTURE),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchHubModels();
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toBeUndefined();
+    expect(readFile).not.toHaveBeenCalled();
   });
 
   it("sends no auth header without a key", async () => {
@@ -832,5 +924,55 @@ describe("fetchHubModels", () => {
     await expect(fetchHubModels()).rejects.toThrow(
       "Failed to fetch CoreInfra prices: 500 Internal Server Error",
     );
+  });
+});
+
+describe("listHubModels", () => {
+  it("routes each known provider to its native OpenCode 2 package", () => {
+    expect(listHubModels(HUB_FIXTURE)).toEqual([
+      {
+        provider: "openai",
+        id: "gpt-5.4-nano",
+        name: "GPT-5.4 Nano",
+        package: "@opencode/ai/providers/openai",
+        api: "https://hub.coreinfra.ai/openai/api/v1",
+        headers: {},
+      },
+      {
+        provider: "anthropic",
+        id: "claude-sonnet-4-20250514",
+        name: "Claude Sonnet 4",
+        package: "@opencode/ai/providers/anthropic",
+        api: "https://hub.coreinfra.ai/anthropic/api/v1",
+        headers: {
+          "anthropic-beta":
+            "interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14",
+        },
+      },
+      {
+        provider: "deepseek",
+        id: "deepseek-v4-pro",
+        name: "DeepSeek V4 Pro",
+        package: "@opencode/ai/providers/openai-compatible",
+        api: "https://hub.coreinfra.ai/openai/api/v1",
+        headers: {},
+      },
+      {
+        provider: "deepseek",
+        id: "deepseek-v4-flash",
+        name: "DeepSeek V4 Flash",
+        package: "@opencode/ai/providers/openai-compatible",
+        api: "https://hub.coreinfra.ai/openai/api/v1",
+        headers: {},
+      },
+    ]);
+  });
+
+  it("skips unknown providers", () => {
+    expect(
+      listHubModels({
+        providers: { mistery: { models: { m: { display_name: "M" } } } },
+      }),
+    ).toEqual([]);
   });
 });

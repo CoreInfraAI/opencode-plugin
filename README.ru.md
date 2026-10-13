@@ -4,7 +4,21 @@
 
 ## Установка
 
-**Важно:** требуется версия OpenCode не старше 1.4.0
+Работает с OpenCode 1.x (1.4.0 или новее) и OpenCode 2.x (2.0.28 или новее).
+
+### OpenCode 2
+
+Установка плагина
+```bash
+opencode plugin add '@coreinfra/opencode-plugin@latest'
+```
+
+Авторизация с вводом API-токена
+```bash
+opencode auth login coreinfra
+```
+
+### OpenCode 1
 
 Установка плагина
 ```bash
@@ -55,6 +69,7 @@ https://hub.coreinfra.ai/pricing
 
 | Переменная | По умолчанию | Описание |
 |---|---|---|
+| `COREINFRA_API_KEY` | — | В OpenCode 2 — API-токен, используемый вместо авторизации (сохранённая авторизация имеет приоритет). В OpenCode 1 используется только для загрузки списка моделей; авторизация всё равно обязательна. |
 | `COREINFRA_HUB_BASE_URL` | `https://hub.coreinfra.ai` | Базовый URL экземпляра CoreInfra Hub. Переопределяет стандартный эндпоинт для получения списка моделей и проксирования API. |
 
 ## Разработка

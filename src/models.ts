@@ -3,6 +3,9 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { xdgCache, xdgData } from "xdg-basedir";
 
+export const PROVIDER_ID = "coreinfra";
+export const PROVIDER_NAME = "CoreInfra AI Hub";
+
 const FETCH_TIMEOUT_MS = 10_000;
 const CACHE_PATH = join(
   xdgCache ?? join(homedir(), ".cache"),
@@ -43,7 +46,10 @@ type Protocol = "openai" | "anthropic";
 // `npm` package selects the wire API: `@ai-sdk/openai` targets OpenAI's
 // Responses API (`/responses`), while `@ai-sdk/openai-compatible` targets the
 // Chat Completions API (`/chat/completions`).
-const PROVIDERS = new Map<string, { protocol: Protocol; npm: string }>([
+const PROVIDERS = new Map<
+  string,
+  { protocol: Protocol; npm: string; temperature?: false }
+>([
   ["openai", { protocol: "openai", npm: "@ai-sdk/openai" }],
   ["anthropic", { protocol: "anthropic", npm: "@ai-sdk/anthropic" }],
   // DeepSeek must use Chat Completions, not the Anthropic protocol: the
@@ -54,7 +60,18 @@ const PROVIDERS = new Map<string, { protocol: Protocol; npm: string }>([
   // round-trip that DeepSeek's thinking mode requires.
   ["deepseek", { protocol: "openai", npm: "@ai-sdk/openai-compatible" }],
   ["zai", { protocol: "openai", npm: "@ai-sdk/openai-compatible" }],
-  ["moonshotai", { protocol: "openai", npm: "@ai-sdk/openai-compatible" }],
+  // Moonshot rejects any temperature other than 1 ("only 1 is allowed for this
+  // model"), yet models.dev marks some Kimi models as tunable. OpenCode's title
+  // agent then sends its own temperature and title generation fails, so never
+  // send one and let the API use its default.
+  [
+    "moonshotai",
+    {
+      protocol: "openai",
+      npm: "@ai-sdk/openai-compatible",
+      temperature: false,
+    },
+  ],
 ]);
 
 type ModelDevEntry = {
@@ -67,6 +84,7 @@ type ModelDevEntry = {
   tool_call?: boolean;
   interleaved?: boolean | { field: string };
   modalities?: { input?: string[]; output?: string[] };
+  reasoning_options?: { type: string; values?: (string | null)[] }[];
   cost?: {
     input?: number;
     output?: number;
@@ -120,7 +138,46 @@ type ConfigModel = {
   };
   interleaved: boolean | { field: string };
   headers: Record<string, string>;
+  variants?: Record<string, { reasoningEffort: string } | { disabled: true }>;
 };
+
+// Every effort name OpenCode 1 may generate on its own for a chat model.
+const KNOWN_EFFORTS = [
+  "none",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+];
+
+// The reasoning efforts models.dev lists for a model. "none" is left out: on
+// chat routes it means turning thinking off, which is not an effort setting.
+function reasoningEfforts(entry: ModelDevEntry | null) {
+  const values = entry?.reasoning_options?.find(
+    (option) => option.type === "effort",
+  )?.values;
+  return values?.filter(
+    (value): value is string => typeof value === "string" && value !== "none",
+  );
+}
+
+// OpenCode 1 guesses chat-model efforts from the model ID (e.g. it only offers
+// "max" for IDs containing "deepseek-v4"), so a Hub alias like deepseek-flash
+// gets the wrong menu. Use the efforts models.dev lists and hide the rest.
+function chatVariants(entry: ModelDevEntry | null) {
+  const efforts = reasoningEfforts(entry);
+  if (!efforts?.length) return undefined;
+  return Object.fromEntries(
+    [...new Set([...KNOWN_EFFORTS, ...efforts])].map((effort) => [
+      effort,
+      efforts.includes(effort)
+        ? { reasoningEffort: effort }
+        : { disabled: true as const },
+    ]),
+  );
+}
 
 function buildLookupMap(modelsDevData: ModelsDevData) {
   const byFullId = new Map<string, ModelDevEntry>();
@@ -172,18 +229,20 @@ export async function fetchModelsDevData(): Promise<ModelsDevData> {
 
 type AuthStore = { [provider: string]: { type?: string; key?: string } };
 
-// The config hook runs before OpenCode consults our auth.loader, so the key
-// has to be resolved independently: first from the environment, then from the
-// auth store OpenCode writes for `opencode auth login`. Every failure on the
-// store path (missing file, bad JSON, no usable entry) means "no key".
-async function resolveHubApiKey(): Promise<string | undefined> {
+// OpenCode 1 only. The config hook runs before OpenCode consults our
+// auth.loader, so the key has to be resolved independently: first from the
+// environment, then from the auth store OpenCode 1 writes for `opencode auth
+// login`. Every failure on the store path (missing file, bad JSON, no usable
+// entry) means "no key". OpenCode 2 keeps credentials in its database and only
+// imports auth.json once, so it must never use this.
+export async function resolveLegacyHubApiKey(): Promise<string | undefined> {
   const fromEnv = process.env.COREINFRA_API_KEY?.trim();
   if (fromEnv) return fromEnv;
 
   try {
     const raw = await readFile(AUTH_PATH, "utf-8");
     const store = JSON.parse(raw) as AuthStore;
-    const entry = store["coreinfra"];
+    const entry = store[PROVIDER_ID];
     const key = entry?.type === "api" ? entry.key?.trim() : undefined;
     if (key) return key;
   } catch {
@@ -192,8 +251,7 @@ async function resolveHubApiKey(): Promise<string | undefined> {
   return undefined;
 }
 
-export async function fetchHubModels(): Promise<HubResponse> {
-  const apiKey = await resolveHubApiKey();
+export async function fetchHubModels(apiKey?: string): Promise<HubResponse> {
   const res = await fetch(HUB_URL, {
     headers: apiKey ? { "X-CoreInfra-Api-Key": apiKey } : undefined,
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
@@ -238,7 +296,8 @@ export function buildConfigModels(
         },
         attachment: entry?.attachment ?? DEFAULT_CAPS.attachment,
         reasoning: entry?.reasoning ?? DEFAULT_CAPS.reasoning,
-        temperature: entry?.temperature ?? DEFAULT_CAPS.temperature,
+        temperature:
+          known.temperature ?? entry?.temperature ?? DEFAULT_CAPS.temperature,
         tool_call: entry?.tool_call ?? DEFAULT_CAPS.tool_call,
         modalities: {
           input: entry?.modalities?.input ?? [
@@ -260,8 +319,55 @@ export function buildConfigModels(
           (anthropic ? { field: "reasoning_content" } : true),
         headers: anthropic ? { "anthropic-beta": ANTHROPIC_BETA_HEADER } : {},
       };
+      const variants =
+        known.npm === "@ai-sdk/openai-compatible"
+          ? chatVariants(entry)
+          : undefined;
+      if (variants) models[modelId].variants = variants;
     }
   }
 
   return { models, warnings };
+}
+
+// OpenCode 2 ships its own native protocol implementations instead of loading
+// AI SDK packages. Naming them explicitly matters: a provider registered from a
+// plugin is not rewritten from `aisdk:` packages the way config providers are.
+const NATIVE_PACKAGES: Record<string, string> = {
+  "@ai-sdk/openai": "@opencode/ai/providers/openai",
+  "@ai-sdk/anthropic": "@opencode/ai/providers/anthropic",
+  "@ai-sdk/openai-compatible": "@opencode/ai/providers/openai-compatible",
+};
+
+export type HubModel = {
+  provider: string;
+  id: string;
+  name: string;
+  package: string;
+  api: string;
+  headers: Record<string, string>;
+};
+
+// Every Hub model we know how to route, in the protocol-neutral shape the
+// OpenCode 2 mapper consumes. The Hub listing is authoritative for which
+// models exist; capability metadata is resolved separately.
+export function listHubModels(hubData: HubResponse): HubModel[] {
+  const models: HubModel[] = [];
+  for (const [provider, providerData] of Object.entries(hubData.providers)) {
+    const known = PROVIDERS.get(provider);
+    const pkg = known && NATIVE_PACKAGES[known.npm];
+    if (!known || !pkg || !providerData?.models) continue;
+    const anthropic = known.protocol === "anthropic";
+    for (const [id, hubModel] of Object.entries(providerData.models)) {
+      models.push({
+        provider,
+        id,
+        name: hubModel.display_name,
+        package: pkg,
+        api: anthropic ? ANTHROPIC_BASE : OPENAI_BASE,
+        headers: anthropic ? { "anthropic-beta": ANTHROPIC_BETA_HEADER } : {},
+      });
+    }
+  }
+  return models;
 }
