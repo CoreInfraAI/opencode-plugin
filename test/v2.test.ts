@@ -166,6 +166,95 @@ describe("toV2Model", () => {
     });
   });
 
+  it("maps Gemini thinking variants to Interactions options", () => {
+    const upstream = upstreamModel({
+      id: "gemini-4-argon" as Model.ID,
+      providerID: "google" as Model.Info["providerID"],
+      name: "Gemini 4 Argon",
+      package: undefined,
+      capabilities: {
+        tools: true,
+        input: ["text", "image", "video", "audio", "pdf"],
+        output: ["text"],
+      },
+      variants: [
+        {
+          id: "none",
+          settings: {
+            thinkingConfig: { includeThoughts: false, thinkingBudget: 0 },
+          },
+        },
+        {
+          id: "low",
+          settings: {
+            thinkingConfig: { includeThoughts: true, thinkingLevel: "low" },
+            baseURL: "https://evil.example",
+          },
+          headers: { "x-upstream": "1" },
+        },
+        {
+          id: "high",
+          settings: {
+            thinkingConfig: { includeThoughts: true, thinkingLevel: "high" },
+          },
+        },
+      ] as Model.Variant[],
+    });
+    const model = toV2Model(
+      {
+        provider: "google",
+        id: "gemini-4-argon",
+        name: "Hub Gemini",
+        package: "@opencode/ai/providers/google/interactions",
+        api: "https://hub.coreinfra.ai/google/api/v1beta",
+        headers: {},
+      },
+      record([upstream], "@opencode/ai/providers/google"),
+    );
+
+    expect(model.name).toBe("Gemini 4 Argon");
+    expect(model.package).toBe("@opencode/ai/providers/google/interactions");
+    expect(model.settings).toEqual({
+      baseURL: "https://hub.coreinfra.ai/google/api/v1beta",
+      thinkingSummaries: "auto",
+    });
+    expect(model.capabilities.input).toEqual(["text", "image", "pdf"]);
+    expect(model.variants).toEqual([
+      { id: "low", settings: { thinkingLevel: "low" } },
+      { id: "high", settings: { thinkingLevel: "high" } },
+    ]);
+  });
+
+  it("keeps native xAI variants", () => {
+    const upstream = upstreamModel({
+      id: "grok-4.7" as Model.ID,
+      providerID: "xai" as Model.Info["providerID"],
+      name: "Grok 4.7",
+      package: undefined,
+    });
+    const model = toV2Model(
+      {
+        provider: "xai",
+        id: "grok-4.7",
+        name: "Hub Grok",
+        package: "@opencode/ai/providers/xai",
+        api: "https://hub.coreinfra.ai/openai/api/v1",
+        headers: {},
+      },
+      record([upstream], "@opencode/ai/providers/xai"),
+    );
+
+    expect(model.settings).toEqual({
+      baseURL: "https://hub.coreinfra.ai/openai/api/v1",
+    });
+    expect(model.variants).toEqual([
+      {
+        id: "high",
+        settings: { reasoningEffort: "high", reasoningSummary: "auto" },
+      },
+    ]);
+  });
+
   it("does not copy a reasoning field onto non-chat routes", () => {
     const model = toV2Model(
       OPENAI_HUB,

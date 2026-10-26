@@ -246,7 +246,7 @@ describe("buildConfigModels", () => {
       temperature: true,
       tool_call: true,
       modalities: {
-        input: ["text", "image", "audio", "video", "pdf"],
+        input: ["text", "image", "pdf"],
         output: ["text"],
       },
       cost: { input: 0, output: 0, cache_read: 0, cache_write: 0 },
@@ -291,9 +291,9 @@ describe("buildConfigModels", () => {
   it("skips unknown hub providers silently", () => {
     const hubData = {
       providers: {
-        google: {
+        mistral: {
           models: {
-            "gemini-3-pro": { display_name: "Gemini 3 Pro" },
+            "mistral-large": { display_name: "Mistral Large" },
           },
         },
       },
@@ -335,9 +335,9 @@ describe("buildConfigModels", () => {
             "gpt-5.4-nano": { display_name: "GPT-5.4 Nano" },
           },
         },
-        google: {
+        mistral: {
           models: {
-            "gemini-3-pro": { display_name: "Gemini 3 Pro" },
+            "mistral-large": { display_name: "Mistral Large" },
           },
         },
       },
@@ -560,6 +560,167 @@ describe("buildConfigModels", () => {
     });
     expect(models["deepseek-plain"]?.variants).toBeUndefined();
     expect(models["gpt-x"]?.variants).toBeUndefined();
+  });
+
+  it("hides efforts when reasoning_options has no effort", () => {
+    const { models } = buildConfigModels(
+      {
+        zai: {
+          models: { "glm-x": { reasoning_options: [{ type: "toggle" }] } },
+        },
+      },
+      {
+        providers: { zai: { models: { "glm-x": { display_name: "GLM X" } } } },
+      },
+    );
+
+    expect(models["glm-x"]?.variants).toEqual({
+      none: { disabled: true },
+      minimal: { disabled: true },
+      low: { disabled: true },
+      medium: { disabled: true },
+      high: { disabled: true },
+      xhigh: { disabled: true },
+      max: { disabled: true },
+    });
+  });
+
+  it("routes xAI and Google through the Responses API", () => {
+    const modelsDevData = {
+      xai: {
+        models: {
+          "grok-4.7": {
+            name: "Grok 4.7",
+            reasoning: true,
+            limit: { context: 500000, output: 500000 },
+            reasoning_options: [
+              { type: "effort", values: ["low", "medium", "high", "xhigh"] },
+            ],
+          },
+          "grok-build-0.1": {
+            name: "Grok Build 0.1",
+            reasoning: true,
+            reasoning_options: [],
+          },
+          "grok-4.20-0309-non-reasoning": {
+            name: "Grok 4.20 (Non-Reasoning)",
+            reasoning: false,
+          },
+        },
+      },
+      google: {
+        models: {
+          "gemini-4-argon": {
+            name: "Gemini 4 Argon",
+            reasoning: true,
+            temperature: true,
+            modalities: {
+              input: ["text", "image", "video", "audio", "pdf"],
+              output: ["text"],
+            },
+            reasoning_options: [
+              { type: "effort", values: ["low", "medium", "high"] },
+            ],
+          },
+        },
+      },
+    };
+    const hubData = {
+      providers: {
+        xai: {
+          models: {
+            "grok-4.7": { display_name: "Grok 4.7" },
+            "grok-build-0.1": { display_name: "Grok Build 0.1" },
+            "grok-4.20-0309-non-reasoning": { display_name: "Grok 4.20" },
+          },
+        },
+        google: {
+          models: { "gemini-4-argon": { display_name: "Gemini 4 Argon" } },
+        },
+      },
+    };
+
+    const { models, warnings } = buildConfigModels(modelsDevData, hubData);
+    const responses = (effort: string) => ({ reasoningEffort: effort });
+
+    expect(warnings).toEqual([]);
+    for (const id of Object.keys(models)) {
+      expect(models[id].provider).toEqual({
+        api: "https://hub.coreinfra.ai/openai/api/v1",
+        npm: "@ai-sdk/openai",
+      });
+      expect(models[id].headers).toEqual({});
+    }
+    expect(models["grok-4.7"].options).toEqual({
+      forceReasoning: true,
+      reasoningSummary: "auto",
+    });
+    expect(models["grok-4.7"].limit).toEqual({
+      context: 500000,
+      output: 500000,
+    });
+    expect(models["grok-4.7"].variants).toEqual({
+      none: { disabled: true },
+      minimal: { disabled: true },
+      low: responses("low"),
+      medium: responses("medium"),
+      high: responses("high"),
+      xhigh: responses("xhigh"),
+      max: { disabled: true },
+    });
+    expect(models["gemini-4-argon"].options).toEqual({
+      forceReasoning: true,
+      reasoningSummary: "auto",
+    });
+    expect(models["gemini-4-argon"].modalities.input).toEqual([
+      "text",
+      "image",
+      "pdf",
+    ]);
+    expect(models["gemini-4-argon"].variants).toMatchObject({
+      minimal: { disabled: true },
+      low: responses("low"),
+      medium: responses("medium"),
+      high: responses("high"),
+      xhigh: { disabled: true },
+    });
+    expect(
+      Object.values(models["grok-build-0.1"].variants ?? {}).every(
+        (variant) => "disabled" in variant,
+      ),
+    ).toBe(true);
+    expect(models["grok-4.20-0309-non-reasoning"].options).toBeUndefined();
+    expect(models["grok-4.20-0309-non-reasoning"].variants).toBeUndefined();
+  });
+
+  it("forces reasoning for non-OpenAI models", () => {
+    const { models } = buildConfigModels(
+      {
+        openai: { models: { "gpt-x": { reasoning: true } } },
+        google: { models: {} },
+      },
+      {
+        providers: {
+          openai: { models: { "gpt-x": { display_name: "GPT X" } } },
+          google: { models: { "gemini-x": { display_name: "Gemini X" } } },
+        },
+      },
+    );
+
+    expect(models["gpt-x"].options).toBeUndefined();
+    expect(models["gemini-x"].options).toEqual({
+      forceReasoning: true,
+      reasoningSummary: "auto",
+    });
+    expect(models["gemini-x"].variants).toEqual({
+      none: { disabled: true },
+      minimal: { disabled: true },
+      low: { disabled: true },
+      medium: { disabled: true },
+      high: { disabled: true },
+      xhigh: { disabled: true },
+      max: { disabled: true },
+    });
   });
 
   // Moonshot only accepts temperature 1; models.dev marking a Kimi model as
@@ -963,6 +1124,36 @@ describe("listHubModels", () => {
         name: "DeepSeek V4 Flash",
         package: "@opencode/ai/providers/openai-compatible",
         api: "https://hub.coreinfra.ai/openai/api/v1",
+        headers: {},
+      },
+    ]);
+  });
+
+  it("routes xAI and Google to their own OpenCode 2 packages and Google to /google/api/v1beta", () => {
+    expect(
+      listHubModels({
+        providers: {
+          xai: { models: { "grok-4.7": { display_name: "Grok 4.7" } } },
+          google: {
+            models: { "gemini-4-argon": { display_name: "Gemini 4 Argon" } },
+          },
+        },
+      }),
+    ).toEqual([
+      {
+        provider: "xai",
+        id: "grok-4.7",
+        name: "Grok 4.7",
+        package: "@opencode/ai/providers/xai",
+        api: "https://hub.coreinfra.ai/openai/api/v1",
+        headers: {},
+      },
+      {
+        provider: "google",
+        id: "gemini-4-argon",
+        name: "Gemini 4 Argon",
+        package: "@opencode/ai/providers/google/interactions",
+        api: "https://hub.coreinfra.ai/google/api/v1beta",
         headers: {},
       },
     ]);
