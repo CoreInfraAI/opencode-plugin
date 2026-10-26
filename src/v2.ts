@@ -29,9 +29,8 @@ const DEFAULT_CAPABILITIES = {
   output: ["text"],
 };
 
-// Variant overlays win over model settings at request time, so only the
-// reasoning controls OpenCode generates for the OpenAI and Anthropic routes are
-// copied; anything that could redirect the endpoint or auth is dropped.
+// Variants override model settings, so copied settings must preserve Hub
+// routing and auth.
 const VARIANT_SETTINGS = new Set([
   "reasoningEffort",
   "reasoningSummary",
@@ -81,6 +80,20 @@ function chatVariants(upstream: Model.Info): Model.Variant[] {
   });
 }
 
+// Gemini's generateContent variants nest thinkingLevel in thinkingConfig;
+// Interactions requires a top-level thinkingLevel.
+function interactionsVariants(upstream: Model.Info): Model.Variant[] {
+  return upstream.variants.flatMap((variant) => {
+    const config = variant.settings?.thinkingConfig;
+    const level =
+      typeof config === "object" && config !== null && "thinkingLevel" in config
+        ? config.thinkingLevel
+        : undefined;
+    if (typeof level !== "string") return [];
+    return [{ id: variant.id, settings: { thinkingLevel: level } }];
+  });
+}
+
 // Builds a model for the Hub inventory. Metadata comes from OpenCode's own
 // models.dev record for the upstream provider (including inactive ones);
 // identity, routing and auth always come from the Hub.
@@ -93,10 +106,14 @@ export function toV2Model(
     source !== undefined &&
     (source.package ?? upstream?.provider.package) === hub.package;
   const chat = hub.package.endsWith("/openai-compatible");
+  const interactions = hub.package.endsWith("/google/interactions");
   const reasoningField = chat
     ? source?.compatibility?.reasoningField
     : undefined;
   const id = hub.id as Model.ID;
+  const capabilities = structuredClone(
+    source?.capabilities ?? DEFAULT_CAPABILITIES,
+  );
 
   return {
     id,
@@ -111,15 +128,26 @@ export function toV2Model(
       // The chat protocol shapes requests (max_tokens, store, tool_stream)
       // by upstream provider name, as for OpenCode's built-in catalog.
       ...(chat ? { provider: hub.provider } : {}),
+      // Gemini returns thought summaries only on request.
+      ...(interactions ? { thinkingSummaries: "auto" } : {}),
     },
     headers: { ...hub.headers },
-    capabilities: structuredClone(source?.capabilities ?? DEFAULT_CAPABILITIES),
+    capabilities: {
+      ...capabilities,
+      // The Hub rejects audio and video on Interactions. OpenCode replaces
+      // unsupported attachments with a note.
+      input: interactions
+        ? capabilities.input.filter((m) => m !== "audio" && m !== "video")
+        : capabilities.input,
+    },
     variants:
       chat && source
         ? chatVariants(source)
-        : samePackage
-          ? variants(source)
-          : [],
+        : interactions && source
+          ? interactionsVariants(source)
+          : samePackage
+            ? variants(source)
+            : [],
     time: { released: source?.time.released ?? 0 },
     cost: structuredClone(source?.cost ?? []),
     status: source?.status ?? "active",

@@ -22,6 +22,7 @@ const DEFAULT_HUB_BASE = "https://hub.coreinfra.ai";
 const HUB_URL = `${process.env.COREINFRA_HUB_BASE_URL ?? DEFAULT_HUB_BASE}/hub/api/prices`;
 const OPENAI_BASE = `${process.env.COREINFRA_HUB_BASE_URL ?? DEFAULT_HUB_BASE}/openai/api/v1`;
 const ANTHROPIC_BASE = `${process.env.COREINFRA_HUB_BASE_URL ?? DEFAULT_HUB_BASE}/anthropic/api/v1`;
+const GOOGLE_BASE = `${process.env.COREINFRA_HUB_BASE_URL ?? DEFAULT_HUB_BASE}/google/api/v1beta`;
 const ANTHROPIC_BETA_HEADER =
   "interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14";
 
@@ -42,24 +43,65 @@ const DEFAULT_COST = {
 type Protocol = "openai" | "anthropic";
 
 // Providers we explicitly know how to route. Models from any provider not
-// listed here are skipped. Adding a provider is a one-line change here. The
-// `npm` package selects the wire API: `@ai-sdk/openai` targets OpenAI's
-// Responses API (`/responses`), while `@ai-sdk/openai-compatible` targets the
-// Chat Completions API (`/chat/completions`).
+// listed here are skipped. Adding a provider is one entry here. `protocol`
+// picks the Hub endpoint and headers. `v1` is the AI SDK package OpenCode 1
+// loads; it builds our models with the package's languageModel(). `v2` is
+// OpenCode 2's built-in package, named explicitly because the provider
+// editor's add() does not translate AI SDK package names. `v2Api` overrides
+// the endpoint for OpenCode 2. `openai` packages target the Responses API
+// (`/responses`), and `openai-compatible` ones the Chat Completions API
+// (`/chat/completions`).
 const PROVIDERS = new Map<
   string,
-  { protocol: Protocol; npm: string; temperature?: false }
+  {
+    protocol: Protocol;
+    v1: string;
+    v2: string;
+    v2Api?: string;
+    efforts?: true;
+    temperature?: false;
+  }
 >([
-  ["openai", { protocol: "openai", npm: "@ai-sdk/openai" }],
-  ["anthropic", { protocol: "anthropic", npm: "@ai-sdk/anthropic" }],
+  [
+    "openai",
+    {
+      protocol: "openai",
+      v1: "@ai-sdk/openai",
+      v2: "@opencode/ai/providers/openai",
+    },
+  ],
+  [
+    "anthropic",
+    {
+      protocol: "anthropic",
+      v1: "@ai-sdk/anthropic",
+      v2: "@opencode/ai/providers/anthropic",
+    },
+  ],
   // DeepSeek must use Chat Completions, not the Anthropic protocol: the
   // Anthropic message format drops reasoning blocks that carry no signature,
   // and DeepSeek never issues one. A reasoning-only assistant turn then lowers
   // to `content: []` and the API rejects the whole request with "all messages
   // must have non-empty content", while `reasoning_content` never survives the
   // round-trip that DeepSeek's thinking mode requires.
-  ["deepseek", { protocol: "openai", npm: "@ai-sdk/openai-compatible" }],
-  ["zai", { protocol: "openai", npm: "@ai-sdk/openai-compatible" }],
+  [
+    "deepseek",
+    {
+      protocol: "openai",
+      v1: "@ai-sdk/openai-compatible",
+      v2: "@opencode/ai/providers/openai-compatible",
+      efforts: true,
+    },
+  ],
+  [
+    "zai",
+    {
+      protocol: "openai",
+      v1: "@ai-sdk/openai-compatible",
+      v2: "@opencode/ai/providers/openai-compatible",
+      efforts: true,
+    },
+  ],
   // Moonshot rejects any temperature other than 1 ("only 1 is allowed for this
   // model"), yet models.dev marks some Kimi models as tunable. OpenCode's title
   // agent then sends its own temperature and title generation fails, so never
@@ -68,8 +110,36 @@ const PROVIDERS = new Map<
     "moonshotai",
     {
       protocol: "openai",
-      npm: "@ai-sdk/openai-compatible",
+      v1: "@ai-sdk/openai-compatible",
+      v2: "@opencode/ai/providers/openai-compatible",
+      efforts: true,
       temperature: false,
+    },
+  ],
+  // @ai-sdk/xai's languageModel() is its Chat Completions client, which rejects
+  // efforts such as "xhigh", so OpenCode 1 uses @ai-sdk/openai for the Hub's
+  // Responses API. OpenCode 2's xAI package defaults to Responses.
+  [
+    "xai",
+    {
+      protocol: "openai",
+      v1: "@ai-sdk/openai",
+      v2: "@opencode/ai/providers/xai",
+      efforts: true,
+    },
+  ],
+  // The Hub serves Gemini natively only over Interactions, which OpenCode 2's
+  // package speaks. @ai-sdk/google's languageModel() is generateContent, so
+  // OpenCode 1 uses the Hub's Responses API, which the Hub converts to
+  // Interactions.
+  [
+    "google",
+    {
+      protocol: "openai",
+      v1: "@ai-sdk/openai",
+      v2: "@opencode/ai/providers/google/interactions",
+      v2Api: GOOGLE_BASE,
+      efforts: true,
     },
   ],
 ]);
@@ -138,10 +208,11 @@ type ConfigModel = {
   };
   interleaved: boolean | { field: string };
   headers: Record<string, string>;
+  options?: { forceReasoning: true; reasoningSummary: string };
   variants?: Record<string, { reasoningEffort: string } | { disabled: true }>;
 };
 
-// Every effort name OpenCode 1 may generate on its own for a chat model.
+// OpenCode 1 may generate these efforts for OpenAI routes.
 const KNOWN_EFFORTS = [
   "none",
   "minimal",
@@ -152,23 +223,20 @@ const KNOWN_EFFORTS = [
   "max",
 ];
 
-// The reasoning efforts models.dev lists for a model. "none" is left out: on
-// chat routes it means turning thinking off, which is not an effort setting.
+// Missing reasoning_options leaves efforts unknown; options without an effort
+// mean none are supported. "none" toggles thinking off on chat routes.
 function reasoningEfforts(entry: ModelDevEntry | null) {
-  const values = entry?.reasoning_options?.find(
-    (option) => option.type === "effort",
-  )?.values;
-  return values?.filter(
+  const options = entry?.reasoning_options;
+  if (!options) return undefined;
+  const values = options.find((option) => option.type === "effort")?.values;
+  return (values ?? []).filter(
     (value): value is string => typeof value === "string" && value !== "none",
   );
 }
 
-// OpenCode 1 guesses chat-model efforts from the model ID (e.g. it only offers
-// "max" for IDs containing "deepseek-v4"), so a Hub alias like deepseek-flash
-// gets the wrong menu. Use the efforts models.dev lists and hide the rest.
-function chatVariants(entry: ModelDevEntry | null) {
-  const efforts = reasoningEfforts(entry);
-  if (!efforts?.length) return undefined;
+// OpenCode 1 guesses efforts from model IDs, which fails for Hub aliases.
+function effortVariants(efforts: string[] | undefined) {
+  if (!efforts) return undefined;
   return Object.fromEntries(
     [...new Set([...KNOWN_EFFORTS, ...efforts])].map((effort) => [
       effort,
@@ -287,12 +355,19 @@ export function buildConfigModels(
         );
       }
 
+      const input = entry?.modalities?.input ?? [
+        "text",
+        "image",
+        "audio",
+        "video",
+        "pdf",
+      ];
       models[modelId] = {
         id: modelId,
         name: entry?.name ?? hubModel.display_name,
         provider: {
           api: anthropic ? ANTHROPIC_BASE : OPENAI_BASE,
-          npm: known.npm,
+          npm: known.v1,
         },
         attachment: entry?.attachment ?? DEFAULT_CAPS.attachment,
         reasoning: entry?.reasoning ?? DEFAULT_CAPS.reasoning,
@@ -300,13 +375,12 @@ export function buildConfigModels(
           known.temperature ?? entry?.temperature ?? DEFAULT_CAPS.temperature,
         tool_call: entry?.tool_call ?? DEFAULT_CAPS.tool_call,
         modalities: {
-          input: entry?.modalities?.input ?? [
-            "text",
-            "image",
-            "audio",
-            "video",
-            "pdf",
-          ],
+          // The OpenAI SDK's Responses model rejects files other than images
+          // and PDFs. OpenCode replaces unsupported attachments with a note.
+          input:
+            known.v1 === "@ai-sdk/openai"
+              ? input.filter((m) => ["text", "image", "pdf"].includes(m))
+              : input,
           output: entry?.modalities?.output ?? ["text"],
         },
         cost: extractCost(entry),
@@ -319,25 +393,27 @@ export function buildConfigModels(
           (anthropic ? { field: "reasoning_content" } : true),
         headers: anthropic ? { "anthropic-beta": ANTHROPIC_BETA_HEADER } : {},
       };
-      const variants =
-        known.npm === "@ai-sdk/openai-compatible"
-          ? chatVariants(entry)
-          : undefined;
+      // The OpenAI SDK drops efforts for unrecognized reasoning model IDs.
+      // Thought summaries require an explicit request.
+      const forced =
+        known.efforts &&
+        known.v1 === "@ai-sdk/openai" &&
+        models[modelId].reasoning;
+      if (forced)
+        models[modelId].options = {
+          forceReasoning: true,
+          reasoningSummary: "auto",
+        };
+      // Without models.dev efforts, forceReasoning would send OpenCode's guesses.
+      const variants = known.efforts
+        ? effortVariants(reasoningEfforts(entry) ?? (forced ? [] : undefined))
+        : undefined;
       if (variants) models[modelId].variants = variants;
     }
   }
 
   return { models, warnings };
 }
-
-// OpenCode 2 ships its own native protocol implementations instead of loading
-// AI SDK packages. Naming them explicitly matters: a provider registered from a
-// plugin is not rewritten from `aisdk:` packages the way config providers are.
-const NATIVE_PACKAGES: Record<string, string> = {
-  "@ai-sdk/openai": "@opencode/ai/providers/openai",
-  "@ai-sdk/anthropic": "@opencode/ai/providers/anthropic",
-  "@ai-sdk/openai-compatible": "@opencode/ai/providers/openai-compatible",
-};
 
 export type HubModel = {
   provider: string;
@@ -355,16 +431,15 @@ export function listHubModels(hubData: HubResponse): HubModel[] {
   const models: HubModel[] = [];
   for (const [provider, providerData] of Object.entries(hubData.providers)) {
     const known = PROVIDERS.get(provider);
-    const pkg = known && NATIVE_PACKAGES[known.npm];
-    if (!known || !pkg || !providerData?.models) continue;
+    if (!known || !providerData?.models) continue;
     const anthropic = known.protocol === "anthropic";
     for (const [id, hubModel] of Object.entries(providerData.models)) {
       models.push({
         provider,
         id,
         name: hubModel.display_name,
-        package: pkg,
-        api: anthropic ? ANTHROPIC_BASE : OPENAI_BASE,
+        package: known.v2,
+        api: known.v2Api ?? (anthropic ? ANTHROPIC_BASE : OPENAI_BASE),
         headers: anthropic ? { "anthropic-beta": ANTHROPIC_BETA_HEADER } : {},
       });
     }

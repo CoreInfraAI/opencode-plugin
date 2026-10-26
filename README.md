@@ -41,7 +41,7 @@ During authentication, you will need a [CoreInfra AI Hub](https://hub.coreinfra.
 ## Limitations
 
 At the moment, OpenCode supports prices in USD only.
-Because of that, pricing is not overridden yet: OpenCode shows prices from the original OpenAI/Anthropic API.
+The plugin therefore keeps the model provider's API prices.
 
 ## Usage
 
@@ -50,6 +50,8 @@ After installation and authentication, models will be available with the `corein
 ```bash
 opencode run -m coreinfra/gpt-5.4-nano
 opencode run -m coreinfra/claude-sonnet-4-20250514
+opencode run -m coreinfra/gemini-3.8-flash
+opencode run -m coreinfra/grok-4.7
 ```
 
 To see the full list of available models:

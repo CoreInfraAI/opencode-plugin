@@ -41,7 +41,7 @@ opencode providers login --provider coreinfra
 ## Ограничения
 
 На данный момент OpenCode поддерживает только цены в долларах.
-Поэтому стоимость пока не переопределяется: OpenCode показывает цены из исходного API OpenAI/Anthropic.
+Поэтому OpenCode показывает цены из API провайдера модели.
 
 ## Использование
 
@@ -50,6 +50,8 @@ opencode providers login --provider coreinfra
 ```bash
 opencode run -m coreinfra/gpt-5.4-nano
 opencode run -m coreinfra/claude-sonnet-4-20250514
+opencode run -m coreinfra/gemini-3.8-flash
+opencode run -m coreinfra/grok-4.7
 ```
 
 Посмотреть список всех доступных моделей:
