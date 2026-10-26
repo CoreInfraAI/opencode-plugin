@@ -1,6 +1,6 @@
 {
   "name": "@coreinfra/opencode-plugin",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "license": "MPL-2.0",
   "repository": {
     "url": "https://github.com/CoreInfraAI/opencode-plugin"
